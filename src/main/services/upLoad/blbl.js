@@ -133,6 +133,7 @@ async function waitBlblSelector(page, selector, visible = false) {
 }
 
 async function clickBlblSelector(page, selector) {
+  await assertBlblReady(page);
   await waitBlblSelector(page, selector);
   const clicked = await page.evaluate((s) => {
     const el = document.querySelector(s);
@@ -141,6 +142,25 @@ async function clickBlblSelector(page, selector) {
     return true;
   }, selector);
   if (!clicked) throw new Error(`哔哩哔哩页面控件已移除：${selector}`);
+}
+
+/** 验证弹窗需本人处理，不能继续将标题/简介误输入验证码框。 */
+export async function assertBlblReady(page) {
+  const reason = await page.evaluate(() => {
+    for (const el of document.querySelectorAll("h2,h3,p,span,div")) {
+      const text = (el.innerText || el.textContent || "").trim();
+      if (!/^(请完成短信验证|请进行安全验证|请完成安全验证|请完成验证|请先完成实名认证)$/.test(text)) continue;
+      const r = el.getBoundingClientRect();
+      const style = el.ownerDocument.defaultView.getComputedStyle(el);
+      if (r.width > 0 && r.height > 0 && style.visibility !== "hidden" && style.display !== "none") return text;
+    }
+    return "";
+  });
+  if (reason) {
+    const error = new Error(`哔哩哔哩要求本人完成验证：${reason}；已停止输入和投稿`);
+    error.requiresVerification = true;
+    throw error;
+  }
 }
 
 export async function selectBlblCreativeStatement(page, data) {
@@ -199,6 +219,7 @@ export async function waitBlblUpload(page, { stallMs = 120000, timeoutMs = WAIT_
   const deadline = Date.now() + timeoutMs;
   let progress = "", changedAt = Date.now();
   while (Date.now() < deadline) {
+    await assertBlblReady(page);
     const state = await page.evaluate(() => {
       const root = document.querySelector(".file-item-content-status");
       const text = root ? (root.innerText || root.textContent || "").trim() : "";
@@ -241,12 +262,16 @@ export default async function (page, data, window, event) {
   const text = buildPlatformVideoText("哔哩哔哩", data.data);
   let submissionAttempted = false;
   try {
+    await assertBlblReady(page);
     await waitBlblSelector(page, '.bcc-upload input[type="file"]');
     const upload = await page.$('.bcc-upload input[type="file"]');
     await upload.uploadFile(path.resolve(data.filePath));
+    await page.waitForTimeout(500);
+    await assertBlblReady(page);
     await fillVerifiedText(page, '.input-instance input[placeholder="请输入稿件标题"]', text.title);
     await selectBlblCreativeStatement(page, data);
     await selectBlblCategory(page, data.publishOptions && data.publishOptions.category || "影视");
+    await assertBlblReady(page);
     await fillVerifiedText(page, ".desc-container .ql-editor", text.description || "");
     await waitBlblSelector(page, ".tag-container .input-instance input");
     const input = await page.$(".tag-container .input-instance input");
@@ -277,6 +302,6 @@ export default async function (page, data, window, event) {
       return;
     }
     await replyPublishFailure({ page, data, window, event, message: e && e.message || "哔哩哔哩发布失败",
-      extraPayload: { retryable: false } });
+      extraPayload: { retryable: false, needsAttention: !!(e && e.requiresVerification) } });
   }
 }

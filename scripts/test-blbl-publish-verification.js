@@ -21,7 +21,7 @@ async function main() {
   }, false);
   assert.equal(navigation.ok, true, 'navigation must not turn a submitted work into a failed record');
   console.log('PASS navigation during confirmation');
-  for (const scenario of ["success", "missing declaration", "wrong declaration", "missing category", "upload error", "upload stalled", "submit unconfirmed", "draft unconfirmed"]) {
+  for (const scenario of ["success", "missing declaration", "wrong declaration", "missing category", "upload error", "upload stalled", "submit unconfirmed", "draft unconfirmed", "SMS verification"]) {
     const dom = new JSDOM(`<input type=file class=file><div class=bcc-upload></div>
       <div class=input-instance><input placeholder="请输入稿件标题"></div>
       <div class=statement-content><div class=bcc-select-input-wrap><input readonly></div>
@@ -47,6 +47,7 @@ async function main() {
     if(scenario==='missing category')doc.querySelector('[title="影视"]').remove();
     if(scenario==='upload error')doc.querySelector('.file-item-content-status').innerHTML='<span class="error">上传失败</span>';
     if(scenario==='upload stalled')doc.querySelector('.file-item-content-status').textContent='已经上传：0.0MB/1.2MB';
+    if(scenario==='SMS verification'){const prompt=doc.createElement('h3');prompt.textContent='请完成短信验证';doc.body.append(prompt);}
     const handle=el=>el&&({click:async()=>{active=el; /* 复现隐藏窗口的坐标点击没有展开菜单 */ if(!el.closest('.statement-content,.video-human-type'))el.click();},
       evaluate:async(fn,...args)=>fn(el,...args),uploadFile:async()=>{},focus:async()=>{active=el;},dispose:async()=>{}});
     const page={ url:()=>submitted && !scenario.includes('unconfirmed')?'https://member.bilibili.com/platform/upload-manager/article':'https://member.bilibili.com/platform/upload/video/frame/',
@@ -62,6 +63,7 @@ async function main() {
     if(scenario==='success'){assert.equal(submitted,1,'DOM clicks must expand and select both menus');assert.equal(result.status,true);assert.equal(doc.querySelector('.statement-content input').value,'含AI生成内容');assert.equal(doc.querySelector('.select-item-cont').textContent,'影视');}
     else if(scenario.includes('unconfirmed')){assert.equal(submitted,1);assert.equal(result.status,true);assert.equal(result.publishAbnormal,true,'must preserve abnormal classification in GUI/CLI');assert.equal(result.needsAttention,true);assert.equal(result.retryable,false);}
     else {assert.equal(submitted,0,'must not submit when a required step fails');assert.equal(result.status,false);assert.equal(result.retryable,false,'must not automatically upload again');}
+    if(scenario==='SMS verification'){assert.equal(result.needsAttention,true);assert.match(result.message,/本人完成验证/);assert.equal(doc.querySelector('.input-instance input').value,'');}
     console.log('PASS',scenario);
     dom.window.close();
   }
