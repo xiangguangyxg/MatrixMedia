@@ -335,7 +335,7 @@ async function runSingleFilePublishInner(
             id: recordId,
             publishMode: completion.savedAsDraft ? "draft" : "publish",
             outcome: payload && payload.outcome,
-            needsAttention: completion.fallbackDraft,
+            needsAttention: completion.needsAttention,
           });
         } else if (channel === "puppeteer-noLogin") {
           if (payload && payload.taskId != null && payload.taskId !== taskId) {

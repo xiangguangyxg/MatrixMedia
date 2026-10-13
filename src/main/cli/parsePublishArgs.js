@@ -90,6 +90,10 @@ export function parsePublishArgs(subArgv) {
       out.draftTest = true;
     } else if (a === "--draft") {
       out.draft = true;
+    } else if (a === "--blbl-category") {
+      const category = args[++i];
+      if (!category || String(category).startsWith("--")) return { ok: false, error: "--blbl-category 需要分区名称" };
+      out.publishOptions.category = String(category).trim();
     } else if (a === "--sph-link-type") {
       out.sphLinkType = args[++i];
     } else if (a === "--sph-link-value") {
@@ -117,6 +121,7 @@ export function parsePublishArgs(subArgv) {
     return { ok: false, error: `未知平台: ${out.platform}` };
   }
   out.platform = pt;
+  if (out.publishOptions.category && pt !== "哔哩哔哩") return { ok: false, error: "--blbl-category 仅支持哔哩哔哩" };
   if (out.draftTest) {
     if (pt !== "快手" || out.dir || out.publishAt) return { ok:false, error:"--draft-test 仅支持快手单文件即时草稿测试" };
     out.publishOptions.discardVerifiedDraft = true;
@@ -330,6 +335,7 @@ export function publishBodyToArgv(body) {
   pushPair(["title", "t"], "-t");
   pushPair(["description", "desc"], "--description");
   pushPair(["shortTitle", "short-title"], "--short-title");
+  pushPair(["blblCategory"], "--blbl-category");
   pushPair(["bookName", "name", "book-name"], "--name");
   pushPair(["bt2"], "--bt2");
   const tags = pickBodyValue(body, ["tags", "bq"]);
@@ -415,6 +421,7 @@ const SHARED_PUBLISH_BODY_KEYS = [
   "closeWindowAfterPublish",
   "draft",
   "platformOptions",
+  "blblCategory",
   "sphLink",
   "sphProductId",
   "sph-product-id",

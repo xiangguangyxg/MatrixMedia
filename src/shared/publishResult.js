@@ -22,6 +22,7 @@ export function resolvePublishCompletion(payload) {
   );
   return {
     ok,
+    needsAttention: Boolean(publishAbnormal || fallbackDraft || payload && payload.needsAttention === true),
     message,
     fallbackDraft,
     publishAbnormal,

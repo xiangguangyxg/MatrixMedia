@@ -113,6 +113,7 @@ electron . cli publish -p dy --phone 13800138000 -f /path/to/video.mp4 -t "标�
 | `--show`                   | 当前 CLI 会忽略，仍后台运行                                                |
 | `--no-close-window`        | CLI 下无效，仅与 GUI 显示窗口场景有关                                      |
 | `--draft`                  | 保存到平台草稿箱，不直接发布                                               |
+| `--blbl-category` | B站分区的精确名称，例如 `知识`；HTTP 字段为 `blblCategory`。仅对 B站有效，省略时保留原默认分区 |
 | `--sph-product-id`         | 视频号商品上架快捷参数（商品编号）；其他平台忽略 |
 | `--sph-drama-id` | 视频号小程序短剧挂载快捷参数（**短剧名称**，如 `泳陷错恋`）；其他平台忽略                           |
 | `--sph-series-id` | 视频号剧集挂载快捷参数（**剧集名称**，视频号原生剧集）；其他平台忽略                           |

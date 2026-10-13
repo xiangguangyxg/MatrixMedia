@@ -244,10 +244,15 @@ export async function waitBlblSubmit(page, isDraftMode) {
     if (/passport|\/login(?:[/?#]|$)/i.test(url)) return { ok: false, message: "出现登录或验证页面，请本人处理" };
     if (/\/platform\/upload-manager\//.test(url)) return { ok: true, message: "已返回稿件管理页，请核实审核状态" };
     const state = await page.evaluate((draft) => {
+      const visibleText = Array.from(document.querySelectorAll("div,p,h1,h2,h3,span,a,button"))
+        .filter(el => { const r=el.getBoundingClientRect(); return r.width>0 && r.height>0; })
+        .map(el => (el.innerText || el.textContent || "").replace(/\s+/g, "").trim());
+      // B站首稿成功页保持原投稿URL；两项专属操作同时出现才判成功。
+      const completePage = !draft && visibleText.includes("查看进度") && visibleText.includes("再投一个");
       const nodes = Array.from(document.querySelectorAll('[role="alert"],.bcc-message,.bcc-message-notice,.bcc-form-item-error'));
       const texts = nodes.filter(el => { const r=el.getBoundingClientRect(); return r.width>0 && r.height>0; })
         .map(el => (el.innerText || el.textContent || "").trim());
-      return { success: texts.some(s => draft ? /^(存草稿成功|草稿保存成功)[！!。.]?$/.test(s) : /^(投稿成功|发布成功)[！!。.]?$/.test(s)),
+      return { success: completePage || texts.some(s => draft ? /^(存草稿成功|草稿保存成功)[！!。.]?$/.test(s) : /^(投稿成功|发布成功)[！!。.]?$/.test(s)),
         error: texts.filter(s => /失败|错误|不能为空|必填|验证码|请.{0,20}(选择|填写|验证)/.test(s)).join("；").slice(0,400) };
     }, isDraftMode).catch(() => ({ success: false, error: "" }));
     if (state.success) return { ok: true, message: isDraftMode ? "页面明确提示草稿保存成功" : "页面明确提示投稿成功" };

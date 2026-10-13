@@ -21,7 +21,7 @@ async function main() {
   }, false);
   assert.equal(navigation.ok, true, 'navigation must not turn a submitted work into a failed record');
   console.log('PASS navigation during confirmation');
-  for (const scenario of ["success", "missing declaration", "wrong declaration", "missing category", "upload error", "upload stalled", "submit unconfirmed", "draft unconfirmed", "SMS verification"]) {
+  for (const scenario of ["success", "first submission success", "missing declaration", "wrong declaration", "missing category", "upload error", "upload stalled", "submit unconfirmed", "draft unconfirmed", "SMS verification"]) {
     const dom = new JSDOM(`<input type=file class=file><div class=bcc-upload></div>
       <div class=input-instance><input placeholder="请输入稿件标题"></div>
       <div class=statement-content><div class=bcc-select-input-wrap><input readonly></div>
@@ -37,7 +37,7 @@ async function main() {
     global.document = doc; global.window = dom.window;
     dom.window.HTMLElement.prototype.getBoundingClientRect = function() {return {width:this.style.display==='none'?0:100,height:this.style.display==='none'?0:20};};
     let active, submitted = 0, clock = 0;
-    doc.querySelector('.submit-add').onclick=()=>{submitted++;};
+    doc.querySelector('.submit-add').onclick=()=>{submitted++;if(scenario==='first submission success'){doc.body.innerHTML='<div>恭喜你上传第一个稿件，成为UP主~</div><button>查看进度</button><button>再投一个</button>';}};
     doc.querySelector('.submit-draft').onclick=()=>{submitted++;};
     doc.querySelector('.bcc-select-input-wrap').onclick=()=>{doc.querySelector('.bcc-select-list-wrap').style.display='block';};
     doc.querySelector('.bcc-option').onclick=()=>{doc.querySelector('.statement-content input').value=scenario==='wrong declaration'?'内容无需标注':'含AI生成内容';};
@@ -50,7 +50,7 @@ async function main() {
     if(scenario==='SMS verification'){const prompt=doc.createElement('h3');prompt.textContent='请完成短信验证';doc.body.append(prompt);}
     const handle=el=>el&&({click:async()=>{active=el; /* 复现隐藏窗口的坐标点击没有展开菜单 */ if(!el.closest('.statement-content,.video-human-type'))el.click();},
       evaluate:async(fn,...args)=>fn(el,...args),uploadFile:async()=>{},focus:async()=>{active=el;},dispose:async()=>{}});
-    const page={ url:()=>submitted && !scenario.includes('unconfirmed')?'https://member.bilibili.com/platform/upload-manager/article':'https://member.bilibili.com/platform/upload/video/frame/',
+    const page={ url:()=>submitted && !scenario.includes('unconfirmed') && scenario!=='first submission success'?'https://member.bilibili.com/platform/upload-manager/article':'https://member.bilibili.com/platform/upload/video/frame/',
       $:async s=>handle(doc.querySelector(s)), evaluate:async(fn,...args)=>fn(...args),
       waitForSelector:async s=>{const el=doc.querySelector(s);if(!el||el.style.display==='none')throw Error('selector unavailable');return handle(el);},
       waitForTimeout:async ms=>{clock+=ms;},click:async s=>{doc.querySelector(s)?.click();},
@@ -61,6 +61,7 @@ async function main() {
     const result=replies.at(-1); assert.ok(result,'must finish with a result');
     if(scenario==='success' && !result.status) console.error(result);
     if(scenario==='success'){assert.equal(submitted,1,'DOM clicks must expand and select both menus');assert.equal(result.status,true);assert.equal(doc.querySelector('.statement-content input').value,'含AI生成内容');assert.equal(doc.querySelector('.select-item-cont').textContent,'影视');}
+    else if(scenario==='first submission success'){assert.equal(submitted,1);assert.equal(result.status,true);assert.equal(result.publishAbnormal,undefined);}
     else if(scenario.includes('unconfirmed')){assert.equal(submitted,1);assert.equal(result.status,true);assert.equal(result.publishAbnormal,true,'must preserve abnormal classification in GUI/CLI');assert.equal(result.needsAttention,true);assert.equal(result.retryable,false);}
     else {assert.equal(submitted,0,'must not submit when a required step fails');assert.equal(result.status,false);assert.equal(result.retryable,false,'must not automatically upload again');}
     if(scenario==='SMS verification'){assert.equal(result.needsAttention,true);assert.match(result.message,/本人完成验证/);assert.equal(doc.querySelector('.input-instance input').value,'');}

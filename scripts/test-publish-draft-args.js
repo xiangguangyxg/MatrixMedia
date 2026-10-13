@@ -15,6 +15,8 @@ const {
   publishBodyToArgv,
 } = require("../src/main/cli/parsePublishArgs");
 const { resolvePublishCompletion } = require("../src/shared/publishResult");
+assert.equal(resolvePublishCompletion({status:true,publishAbnormal:true}).needsAttention,true);
+assert.equal(resolvePublishCompletion({status:false,needsAttention:true}).needsAttention,true);
 
 // 基础有效 argv（不含 --draft）
 function baseArgv() {
@@ -266,6 +268,7 @@ assert.deepStrictEqual(
     ok: true,
     message: "保存草稿成功",
     fallbackDraft: false,
+    needsAttention: false,
     publishAbnormal: false,
     savedAsDraft: true,
     recordStatus: "draft",
@@ -285,6 +288,7 @@ assert.deepStrictEqual(
     ok: true,
     message: "商品添加失败，已保存草稿",
     fallbackDraft: true,
+    needsAttention: true,
     publishAbnormal: false,
     savedAsDraft: true,
     recordStatus: "draft",
