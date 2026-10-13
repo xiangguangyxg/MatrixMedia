@@ -1,3 +1,4 @@
+import { fillVerifiedText } from "./verifiedForm.js";
 import path from "path";
 import {
   readPageUrl,
@@ -112,197 +113,170 @@ async function handleBlblCover(page) {
   }
 }
 
-async function selectBlblCreativeStatement(page, data) {
+// 不使用依赖屏幕坐标或 requestAnimationFrame 的长等待；隐藏窗口也能处理下拉菜单。
+async function waitBlblSelector(page, selector, visible = false) {
+  // 参数显式传入页面函数，避免打包后闭包变量名失效。
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const found = await page.evaluate((s, v) => {
+      const el = document.querySelector(s);
+      if (!el) return false;
+      if (!v) return true;
+      const style = el.ownerDocument.defaultView.getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+    }, selector, visible);
+    if (found) return;
+    await page.waitForTimeout(250);
+  }
+  throw new Error(`哔哩哔哩页面控件未就绪：${selector}`);
+}
+
+async function clickBlblSelector(page, selector) {
+  await waitBlblSelector(page, selector);
+  const clicked = await page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) return false;
+    el.click();
+    return true;
+  }, selector);
+  if (!clicked) throw new Error(`哔哩哔哩页面控件已移除：${selector}`);
+}
+
+export async function selectBlblCreativeStatement(page, data) {
   const value = data.data && data.data.creativeStatement;
-  console.log("[blbl] creativeStatement 值 =", value);
-  // 注意：「无标注」对应 B 站「内容无需标注」，也必须主动点选，不能跳过
   const opt = getCreativeStatementOption(value);
   const label = resolveBlblCreativeStatementLabel(value);
-  console.log(
-    "[blbl] 准备选择创作声明:",
-    label,
-    "optionalAuth=",
-    !!opt.optionalAuth
-  );
-
-  const trigger = await page.$(
-    ".statement-content .bcc-select-input-wrap input"
-  );
-  if (!trigger) {
-    console.warn("未找到哔哩哔哩创作声明选择器，跳过");
-    return;
-  }
-  await trigger.click({ delay: 200 });
-  await page.waitForSelector(".statement-content .bcc-select-list-wrap", {
-    visible: true,
-    timeout: WAIT_SELECTOR_APPEAR_MS,
-  });
-
-  const picked = await page.evaluate(
-    (text, isAuthOption) => {
-      if (isAuthOption) {
-        const auth = document.querySelector(
-          ".statement-content .auth-content .option-text"
-        );
-        if (auth && auth.textContent.trim() === text) {
-          auth.closest(".auth-content")?.click();
-          return true;
-        }
-        return false;
+  await clickBlblSelector(page, ".statement-content .bcc-select-input-wrap");
+  await waitBlblSelector(page, ".statement-content .bcc-select-list-wrap", true);
+  const picked = await page.evaluate((text, authOption) => {
+    const options = document.querySelectorAll(authOption
+      ? ".statement-content .auth-content .option-text"
+      : ".statement-content li.bcc-option span");
+    for (const span of options) {
+      if ((span.textContent || "").trim() === text) {
+        span.closest(authOption ? ".auth-content" : "li.bcc-option").click();
+        return true;
       }
-      const spans = document.querySelectorAll(
-        ".statement-content li.bcc-option span"
-      );
-      for (const span of spans) {
-        if (span.textContent.trim() === text) {
-          span.closest("li.bcc-option")?.click();
-          return true;
-        }
-      }
-      return false;
-    },
-    label,
-    !!opt.optionalAuth
-  );
-
-  if (!picked) {
-    console.warn(`未找到哔哩哔哩创作声明选项: ${label}`);
-  }
+    }
+    return false;
+  }, label, !!opt.optionalAuth);
+  if (!picked) throw new Error(`未找到哔哩哔哩创作声明选项：${label}`);
   await page.waitForTimeout(300);
+  const selected = await page.evaluate((text, authOption) => {
+    if (authOption) {
+      // 授权声明是独立选项；不可仅凭输入框或点击次数推断成功。
+      const option = document.querySelector(".statement-content .auth-content");
+      return !!option && (option.textContent || "").trim() === text &&
+        !!option.querySelector(".bcc-icon-ic_MenuButton-tick,.selected,.checked");
+    }
+    const input = document.querySelector(".statement-content input");
+    return !!input && input.value.trim() === text;
+  }, label, !!opt.optionalAuth);
+  if (!selected) throw new Error(`哔哩哔哩创作声明核验失败：${label}`);
+}
+
+export async function selectBlblCategory(page, category = "影视") {
+  await clickBlblSelector(page, ".video-human-type .select-controller");
+  await waitBlblSelector(page, ".human-type-list", true);
+  const picked = await page.evaluate((name) => {
+    const item = Array.from(document.querySelectorAll(".human-type-list [title]"))
+      .find(el => el.getAttribute("title") === name);
+    if (!item) return false;
+    item.click();
+    return true;
+  }, category);
+  if (!picked) throw new Error(`未找到哔哩哔哩分区：${category}`);
+  await page.waitForTimeout(300);
+  const selected = await page.evaluate((name) => {
+    const el = document.querySelector(".video-human-type .select-item-cont");
+    return !!el && (el.textContent || "").trim() === name;
+  }, category);
+  if (!selected) throw new Error(`哔哩哔哩分区核验失败：${category}`);
+}
+
+export async function waitBlblUpload(page, { stallMs = 120000, timeoutMs = WAIT_UPLOAD_PROCESSING_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let progress = "", changedAt = Date.now();
+  while (Date.now() < deadline) {
+    const state = await page.evaluate(() => {
+      const root = document.querySelector(".file-item-content-status");
+      const text = root ? (root.innerText || root.textContent || "").trim() : "";
+      return { done: !!(root && root.querySelector(".success")), text,
+        error: !!(root && root.querySelector(".error,.fail,.failed")) || /上传失败|上传错误/.test(text) };
+    });
+    if (state.error) throw new Error(`哔哩哔哩视频上传失败：${state.text}`);
+    if (state.done) return;
+    // 仅比较已上传字节量；倒计时/速度变化不能掩盖实际上传停滞。
+    const current = ((state.text.match(/已经上传[：:]\s*([^/]+)\//) || [])[1] || "").replace(/\s+/g, "");
+    if (current && current !== progress) { progress = current; changedAt = Date.now(); }
+    if (Date.now() - changedAt >= stallMs) throw new Error("哔哩哔哩上传连续两分钟无进度；请检查网络或平台提示，勿重复投稿");
+    await page.waitForTimeout(500);
+  }
+  throw new Error("哔哩哔哩视频上传完成超时");
+}
+
+export async function waitBlblSubmit(page, isDraftMode) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const url = readPageUrl(page);
+    if (/passport|\/login(?:[/?#]|$)/i.test(url)) return { ok: false, message: "出现登录或验证页面，请本人处理" };
+    if (/\/platform\/upload-manager\//.test(url)) return { ok: true, message: "已返回稿件管理页，请核实审核状态" };
+    const state = await page.evaluate((draft) => {
+      const nodes = Array.from(document.querySelectorAll('[role="alert"],.bcc-message,.bcc-message-notice,.bcc-form-item-error'));
+      const texts = nodes.filter(el => { const r=el.getBoundingClientRect(); return r.width>0 && r.height>0; })
+        .map(el => (el.innerText || el.textContent || "").trim());
+      return { success: texts.some(s => draft ? /^(存草稿成功|草稿保存成功)[！!。.]?$/.test(s) : /^(投稿成功|发布成功)[！!。.]?$/.test(s)),
+        error: texts.filter(s => /失败|错误|不能为空|必填|验证码|请.{0,20}(选择|填写|验证)/.test(s)).join("；").slice(0,400) };
+    }, isDraftMode).catch(() => ({ success: false, error: "" }));
+    if (state.success) return { ok: true, message: isDraftMode ? "页面明确提示草稿保存成功" : "页面明确提示投稿成功" };
+    if (state.error) return { ok: false, message: state.error };
+    await page.waitForTimeout(500);
+  }
+  return { ok: false, message: "提交后未观察到明确成功信号；请核查后台，勿重复投稿" };
 }
 
 export default async function (page, data, window, event) {
-  const isDraftMode =
-    data.publishMode === "draft" || data.publishToDraft === true;
+  const isDraftMode = data.publishMode === "draft" || data.publishToDraft === true;
   const text = buildPlatformVideoText("哔哩哔哩", data.data);
-
-  console.log(data);
+  let submissionAttempted = false;
   try {
-    let sel = '.bcc-upload input[type="file"]';
-    await page.waitForSelector(sel, { timeout: WAIT_SELECTOR_APPEAR_MS });
-    const uploadInputs = await page.$(sel);
-    await uploadInputs.uploadFile(path.resolve(data.filePath));
-  } catch (err) {
-    console.error("文件上传失败:", err);
-  }
-
-  try {
-    const selector = '.input-instance input[placeholder="请输入稿件标题"]';
-    await page.waitForSelector(selector, { timeout: WAIT_SELECTOR_APPEAR_MS });
-    const input = await page.$(selector);
-    await input.click({ clickCount: 3 }); // 三击全选
-    await page.keyboard.press("Backspace"); // 删除内容
-    await page.keyboard.type(text.title, { delay: 50 });
-  } catch (e) {
-    console.error("❌ 输入标题失败", e);
-  }
-
-  // 标题输入完后立即选择创作声明（必须声明）
-  try {
+    await waitBlblSelector(page, '.bcc-upload input[type="file"]');
+    const upload = await page.$('.bcc-upload input[type="file"]');
+    await upload.uploadFile(path.resolve(data.filePath));
+    await fillVerifiedText(page, '.input-instance input[placeholder="请输入稿件标题"]', text.title);
     await selectBlblCreativeStatement(page, data);
-  } catch (e) {
-    console.warn("哔哩哔哩创作声明选择未完成:", e?.message || e);
-  }
-
-  try {
-    const selector = ".video-human-type .select-container";
-    await page.waitForSelector(selector, { timeout: WAIT_SELECTOR_APPEAR_MS });
-    const input = await page.$(selector);
-    await input.click();
-    await page.waitForSelector(".human-type-list", {
-      timeout: WAIT_SELECTOR_APPEAR_MS,
-    });
-    const input2 = await page.$('.human-type-list div[title="影视"]');
-    await input2.click();
-  } catch (e) {
-    console.error("❌ 输入类型失败", e);
-  }
-  try {
-    const selector = ".desc-container .ql-editor";
-    await page.waitForSelector(selector, { timeout: WAIT_SELECTOR_APPEAR_MS });
-    const input = await page.$(selector);
-    await input.click();
-    if (text.description) {
-      await page.keyboard.type(text.description);
-    }
-  } catch (e) {
-    console.error("❌ 输入简介失败", e);
-  }
-  try {
-    const tag = normalizeVideoTags(data.data.tags);
-    const selector = ".tag-container .input-instance input";
-    await page.waitForSelector(selector, { timeout: WAIT_SELECTOR_APPEAR_MS });
-    const input = await page.$(selector);
+    await selectBlblCategory(page, data.publishOptions && data.publishOptions.category || "影视");
+    await fillVerifiedText(page, ".desc-container .ql-editor", text.description || "");
+    await waitBlblSelector(page, ".tag-container .input-instance input");
+    const input = await page.$(".tag-container .input-instance input");
     await input.focus();
-    // 标签规则是输入一个词后按回车
-    console.log(tag);
-    for (let i = 0; i < tag.length; i++) {
-      await page.keyboard.type(tag[i], { delay: 100 });
+    for (const tag of normalizeVideoTags(data.data.tags)) {
+      await page.keyboard.type(tag, { delay: 100 });
       await page.keyboard.press("Enter");
-      await page.waitForTimeout(500);
-      await input.focus();
+      await page.waitForTimeout(300);
     }
-  } catch (e) {
-    console.error("❌ 输入标签失败", e);
-  }
-
-  try {
-    // 用 pollPageUntil 替代 waitForSelector，避免 puppeteer 默认 protocolTimeout
-    // (约 180s) 把单次 Runtime.callFunctionOn 砍掉，导致弱网/大文件场景下假性超时。
-    await pollPageUntil(
-      page,
-      () => !!document.querySelector(".file-item-content-status .success"),
-      WAIT_UPLOAD_PROCESSING_MS,
-      2000,
-      "等待哔哩哔哩视频上传完成超时"
-    );
-  } catch (e) {
-    console.warn("哔哩哔哩视频上传未完成，跳过后续步骤:", e?.message || e);
-  }
-
-  await handleBlblCover(page);
-
-  try {
-    await page.waitForTimeout(500);
-    // 点击一下空白的区域
-    await page.click("body", { delay: 200 });
-    await page.waitForSelector(".submit-container .submit-add", {
-      timeout: WAIT_SELECTOR_APPEAR_MS,
-    });
-    // 存到草稿
-    await page.waitForSelector(".submit-draft", {
-      timeout: WAIT_SELECTOR_APPEAR_MS,
-    });
+    await waitBlblUpload(page);
+    // 已有自动封面时不再等不存在的 cover-empty（最长五分钟）。
+    const hasCover = await page.evaluate(() => !!document.querySelector(".cover-main .cover-img"));
+    if (!hasCover) await handleBlblCover(page);
     const urlBefore = readPageUrl(page);
-    if (isDraftMode) {
-      await page.click(".submit-draft", { delay: 200 });
-    } else {
-      // 发布
-      await page.click(".submit-add", { clickCount: 2, delay: 200 });
-    }
-    // 检测._phone-label_1eni7_34 消失
-    console.log(
-      isDraftMode ? "✅ 哔哩哔哩视频已保存草稿" : "✅ 哔哩哔哩视频上传成功"
-    );
-    await replyPublishOutcome({
-      page,
-      data,
-      window,
-      event,
-      urlBefore,
-      isDraftMode,
-      successMessage: isDraftMode ? "保存草稿成功" : "上传成功",
-    });
+    // 单击提交；结果不确定时返回 needsAttention，绝不自动二次点击或重传。
+    const submitSelector = isDraftMode ? ".submit-draft" : ".submit-container .submit-add";
+    await waitBlblSelector(page, submitSelector);
+    submissionAttempted = true;
+    await clickBlblSelector(page, submitSelector);
+    const confirmation = await waitBlblSubmit(page, isDraftMode);
+    await replyPublishOutcome({ page, data, window, event, urlBefore, isDraftMode,
+      confirmation, successMessage: confirmation.message, extraPayload: { retryable: false }, waitMs: 0 });
   } catch (e) {
-    // 失败瞬间截图留证（登录过期 / 风控弹窗 / 元素改版都能一眼看出）
-    await replyPublishFailure({
-      page,
-      data,
-      window,
-      event,
-      message: "上传失败",
-      closeWindow: true,
-    });
-    console.error("❌ 发布失败", e);
+    if (submissionAttempted) {
+      await replyPublishOutcome({ page, data, window, event, isDraftMode,
+        confirmation: { ok: false, message: "提交结果未确认，请核查后台，勿重复投稿：" + (e && e.message || "页面异常") },
+        extraPayload: { retryable: false }, waitMs: 0 });
+      return;
+    }
+    await replyPublishFailure({ page, data, window, event, message: e && e.message || "哔哩哔哩发布失败",
+      extraPayload: { retryable: false } });
   }
 }

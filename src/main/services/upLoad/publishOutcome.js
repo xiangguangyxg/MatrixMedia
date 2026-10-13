@@ -71,7 +71,7 @@ export async function replyPublishOutcome({
   // 读不到地址（窗口已关/页面销毁）时不做异常判定，避免误报
   const urlUnchanged =
     !!urlBefore && !!urlAfter && normalizeUrl(urlAfter) === normalizeUrl(urlBefore);
-  const abnormal = !isDraftMode && (confirmation ? !confirmation.ok : urlUnchanged);
+  const abnormal = confirmation ? !confirmation.ok : !isDraftMode && urlUnchanged;
 
   const payload = {
     ...data,
