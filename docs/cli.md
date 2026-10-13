@@ -237,3 +237,7 @@ matrixmedia cli stats -p sph --phone 123
 matrixmedia cli stats-sync -p dy --phone 123
 matrixmedia cli stats-work -p ks --phone 123 --title "你家猫也这样睡？倒挂笼子都不醒"
 ```
+
+### 本地修复版的快手草稿测试
+
+`cli publish -p ks ... --draft-test` 仅支持快手单文件即时任务。它不点击公开发布：填写并核验文案与声明，保存后重新打开上传页，通过“继续编辑”核验恢复内容，再通过“放弃”清理该测试草稿并刷新核查。普通 `--draft` 保留草稿。视频号不支持此新增测试清理参数。任何缺失控件或核验失败均停止，不自动重试。

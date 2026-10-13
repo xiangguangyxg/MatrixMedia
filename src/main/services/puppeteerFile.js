@@ -309,7 +309,8 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
       if (
         channel === "puppeteerFile-done" &&
         payload &&
-        payload.status === false
+        payload.status === false &&
+        payload.retryable !== false
       ) {
         const err = new Error(payload.message || "平台上传失败");
         err._mmUploadFailurePayload = payload;
@@ -321,7 +322,7 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
         payload.status === true &&
         !payload.skipped;
       const replied = transport.reply(channel, ...args);
-      if (ok) finishOnce();
+      if (ok || (channel === "puppeteerFile-done" && payload && payload.retryable === false)) finishOnce();
       return replied;
     },
   });

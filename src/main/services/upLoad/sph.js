@@ -1,3 +1,4 @@
+import { fillVerifiedText, waitVerifiedSubmit, statementAliases } from "./verifiedForm.js";
 import path from "path";
 import maybeClosePublishWindow from "./closeWindow.js";
 import { resolveVideoLinkOption } from "../../../shared/videoLink.js";
@@ -109,6 +110,7 @@ async function tryDeclareOriginal(page) {
 async function applySphCreativeStatement(page, value) {
   if (isCreativeStatementNone(value)) return;
   const label = resolveSphCreativeStatementLabel(value);
+  const aliases = statementAliases(label, value);
   if (!label || label === "无标注" || label === "无需标注") return;
 
   const opened = await page.evaluate(() => {
@@ -121,8 +123,7 @@ async function applySphCreativeStatement(page, value) {
     return true;
   });
   if (!opened) {
-    console.log("视频标注：未找到入口，跳过");
-    return;
+    throw new Error("视频标注：未找到入口，已停止提交");
   }
 
   await page.waitForTimeout(300);
@@ -133,17 +134,19 @@ async function applySphCreativeStatement(page, value) {
     const options = Array.from(root.querySelectorAll(".mark-tag-option"));
     const target = options.find((item) => {
       const main = item.querySelector(".option-main");
-      return String((main && main.textContent) || "").trim() === expected;
+      return expected.includes(String((main && main.textContent) || "").trim());
     });
     if (!target) return false;
     target.click();
     return true;
-  }, label);
+  }, aliases);
   if (!clicked) {
-    console.warn(`视频标注：未找到选项「${label}」，跳过`);
-    return;
+    await page.keyboard.press("Escape");
+    throw new Error(`视频标注：未找到选项「${label}」，已停止提交`);
   }
-  console.log(`[sph][mark-tag] 已选择：${label}`);
+  const selected = await page.evaluate(() => { const app = document.querySelector("wujie-app.wujie_iframe"); const el = app && app.shadowRoot && app.shadowRoot.querySelector(".post-with-mark-tag .select-display"); return String(el && el.textContent || "").trim(); });
+  if (!aliases.includes(selected)) throw new Error("视频标注选中值核验失败：" + selected);
+  console.log(`[sph][mark-tag] 已核验：${label}`);
   await page.waitForTimeout(400);
 }
 
@@ -229,21 +232,16 @@ export default async function (page, data, window, event, onFinish) {
     await uploadInput.evaluate((el) => {
       el.dispatchEvent(new Event("change", { bubbles: true }));
     });
-  } catch (err) {
-    console.error("❌ 文件上传失败:", err);
-  }
 
-  try {
+    await waitSphUploadProcessing(page);
+
     const text = buildPlatformVideoText("视频号", data.data);
     const titleInput = await page.waitForSelector(
       "wujie-app.wujie_iframe >>> .post-desc-box .input-editor",
       { timeout: WAIT_SELECTOR_APPEAR_MS }
     );
     // 传统input/textarea的操作
-    await titleInput.click();
-    if (text.description) {
-      await page.keyboard.type(text.description, { delay: 50 });
-    }
+    await fillVerifiedText(page, "wujie-app.wujie_iframe >>> .post-desc-box .input-editor", text.description);
     const shortTitle = text.shortTitle;
     if (shortTitle) {
       const sel2 =
@@ -251,17 +249,12 @@ export default async function (page, data, window, event, onFinish) {
       const uploadInput2 = await page.waitForSelector(sel2, {
         timeout: WAIT_SELECTOR_APPEAR_MS,
       });
-      await uploadInput2.click();
       let newBt = shortTitle.replace(/[，。、\/,;:!?'"()\[\]{}<>]/g, " ");
-      await page.keyboard.type(newBt, { delay: 50 });
+      await fillVerifiedText(page, sel2, newBt);
     } else {
       console.log("视频号短标题未填写，跳过");
     }
-  } catch (err) {
-    console.error("❌ 输入失败:", err);
-  }
 
-  try {
     const link = resolveVideoLinkOption("视频号", data.publishOptions);
     if (link && link.enabled === true) {
       try {
@@ -284,17 +277,7 @@ export default async function (page, data, window, event, onFinish) {
       }
     }
 
-    try {
-      await applySphCreativeStatement(
-        page,
-        data.data && data.data.creativeStatement
-      );
-    } catch (markError) {
-      console.warn(
-        "视频标注选择未完成:",
-        markError && markError.message ? markError.message : markError
-      );
-    }
+    await applySphCreativeStatement(page, data.data && data.data.creativeStatement);
 
     await tryDeclareOriginal(page);
     await waitSphUploadProcessing(page);
@@ -306,6 +289,7 @@ export default async function (page, data, window, event, onFinish) {
     console.log(
       isDraftMode ? "✅ 视频号视频已保存草稿" : "✅ 视频号视频上传成功"
     );
+    const confirmation = isDraftMode ? null : await waitVerifiedSubmit(page, "sph");
     await replyPublishOutcome({
       page,
       data,
@@ -314,6 +298,8 @@ export default async function (page, data, window, event, onFinish) {
       urlBefore,
       isDraftMode,
       successMessage: isDraftMode ? "保存草稿成功" : "上传成功",
+      confirmation,
+      waitMs: 0,
     });
   } catch (err) {
     const detail =
@@ -330,6 +316,7 @@ export default async function (page, data, window, event, onFinish) {
           ? `${detail.slice(0, 400)}…`
           : detail || "上传失败",
       closeWindow: true,
+      extraPayload: { retryable: false },
     });
   }
 }

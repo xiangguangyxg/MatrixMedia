@@ -45,6 +45,7 @@ export function parsePublishArgs(subArgv) {
     config: null,
     creativeStatement: null,
     draft: false,
+    draftTest: false,
     sphLinkType: null,
     sphLinkValue: null,
     publishOptions: {},
@@ -84,6 +85,9 @@ export function parsePublishArgs(subArgv) {
       out.config = args[++i];
     } else if (a === "--creative-statement" || a === "--cs") {
       out.creativeStatement = args[++i];
+    } else if (a === "--draft-test") {
+      out.draft = true;
+      out.draftTest = true;
     } else if (a === "--draft") {
       out.draft = true;
     } else if (a === "--sph-link-type") {
@@ -113,6 +117,10 @@ export function parsePublishArgs(subArgv) {
     return { ok: false, error: `未知平台: ${out.platform}` };
   }
   out.platform = pt;
+  if (out.draftTest) {
+    if (pt !== "快手" || out.dir || out.publishAt) return { ok:false, error:"--draft-test 仅支持快手单文件即时草稿测试" };
+    out.publishOptions.discardVerifiedDraft = true;
+  }
   if (out.bt2) {
     if (out.platform === "视频号" && !out.shortTitle) out.shortTitle = out.bt2;
     if (out.platform !== "视频号" && !out.description)
@@ -649,6 +657,7 @@ export function publishHelpText() {
                             到点后由应用主进程调度执行；不支持每日/每周/每月循环。
       --show            （已忽略）CLI 不显示自动化窗口
       --no-close-window 发布后不自动关窗（仅 GUI 显示窗口时有效；CLI 始终后台运行）
+      --draft-test      快手专用：保存、恢复核验草稿，再放弃测试草稿；不会公开发布
       --draft           显式发布到草稿箱（小红书点「暂存离开」）。若账号在 GUI「媒体平台管理」
                             里开启了「默认发布到草稿」，即使不加该参数也会自动走草稿。
       --sph-product-id <id>   视频号商品上架（快捷参数，等价于 product + 商品编号）

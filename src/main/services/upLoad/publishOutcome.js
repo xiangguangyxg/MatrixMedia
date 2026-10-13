@@ -63,6 +63,7 @@ export async function replyPublishOutcome({
   extraPayload = {},
   closeWindowData,
   waitMs = PUBLISH_NAVIGATE_WAIT_MS,
+  confirmation,
 }) {
   await delay(page, waitMs);
 
@@ -70,14 +71,14 @@ export async function replyPublishOutcome({
   // 读不到地址（窗口已关/页面销毁）时不做异常判定，避免误报
   const urlUnchanged =
     !!urlBefore && !!urlAfter && normalizeUrl(urlAfter) === normalizeUrl(urlBefore);
-  const abnormal = !isDraftMode && urlUnchanged;
+  const abnormal = !isDraftMode && (confirmation ? !confirmation.ok : urlUnchanged);
 
   const payload = {
     ...data,
     ...extraPayload,
     status: true,
     publishPageUrl: urlAfter,
-    message: abnormal ? PUBLISH_ABNORMAL_MESSAGE : successMessage,
+    message: confirmation ? confirmation.message : abnormal ? PUBLISH_ABNORMAL_MESSAGE : successMessage,
   };
   if (abnormal) {
     payload.publishAbnormal = true;
