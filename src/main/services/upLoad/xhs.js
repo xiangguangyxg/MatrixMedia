@@ -39,7 +39,34 @@ const XHS_SUPPORTED_STATEMENT_LABELS = new Set([
   "内容包含营销广告",
 ]);
 
-async function selectXhsCreativeStatement(page, data) {
+// 声明控件不使用 ElementHandle.click：后台窗口的可见性观察可能不回调。
+// 同步滚动、读取坐标后发送鼠标事件，不等待 IntersectionObserver。
+async function clickXhsStatementControl(page, id) {
+  const encodedId = JSON.stringify(id);
+  const point = await page.evaluate(
+    "(function(){var el=document.getElementById(" + encodedId + ");" +
+    "if(!el)return null;el.scrollIntoView&&el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});" +
+    "var r=el.getBoundingClientRect(),s=window.getComputedStyle(el);" +
+    "if(!r.width||!r.height||s.display==='none'||s.visibility==='hidden')return null;" +
+    "var x=r.left+r.width/2,y=r.top+r.height/2;" +
+    "if(x<0||y<0||x>=window.innerWidth||y>=window.innerHeight)return null;" +
+    "return {x:x,y:y};})()"
+  );
+  if (!point) throw new Error("小红书声明控件不可点击：" + id);
+  try {
+    await page.mouse.click(point.x, point.y, { delay: 80 });
+  } catch (error) {
+    console.warn("[xhs] 声明坐标点击失败，尝试 DOM 事件:", error?.message || error);
+    await page.evaluate(
+      "(function(){var el=document.getElementById(" + encodedId + ");" +
+      "if(!el)throw new Error('声明控件已移除');var r=el.getBoundingClientRect();" +
+      "var o={bubbles:true,cancelable:true,view:window,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0};" +
+      "el.dispatchEvent(new MouseEvent('mousedown',o));el.dispatchEvent(new MouseEvent('mouseup',o));el.dispatchEvent(new MouseEvent('click',o));})()"
+    );
+  }
+}
+
+export async function selectXhsCreativeStatement(page, data) {
   const value = data.data && data.data.creativeStatement;
   console.log("[xhs] creativeStatement 值 =", value);
   if (isCreativeStatementNone(value)) {
@@ -48,8 +75,7 @@ async function selectXhsCreativeStatement(page, data) {
   }
   const label = resolveXhsCreativeStatementLabel(value);
   if (!XHS_SUPPORTED_STATEMENT_LABELS.has(label)) {
-    console.warn(`[xhs] 当前声明值 "${value}" 在小红书没有对应选项，跳过`);
-    return;
+    throw new Error(`[xhs] 当前声明值 "${value}" 在小红书没有对应选项`);
   }
   console.log("[xhs] 准备选择内容类型声明:", label);
 
@@ -71,35 +97,15 @@ async function selectXhsCreativeStatement(page, data) {
       "})()"
   );
   if (!triggerId) {
-    console.warn("未找到小红书「添加内容类型声明」入口，跳过");
-    return;
+    throw new Error("未找到小红书「添加内容类型声明」入口");
   }
-  try {
-    await page.click("#" + triggerId, { delay: 80 });
-    console.log("[xhs] 已 page.click 打开内容类型声明下拉");
-  } catch (e) {
-    console.warn(
-      "[xhs] page.click 失败，尝试 DOM 派发 mousedown:",
-      e?.message || e
-    );
-    await page.evaluate(
-      "(function(id){" +
-        "var el=document.getElementById(id);" +
-        "if(!el)return;" +
-        "var r=el.getBoundingClientRect();" +
-        "var o={bubbles:true,cancelable:true,view:window,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0};" +
-        "el.dispatchEvent(new MouseEvent('mousedown',o));" +
-        "el.dispatchEvent(new MouseEvent('mouseup',o));" +
-        "el.dispatchEvent(new MouseEvent('click',o));" +
-        "})(" +
-        JSON.stringify(triggerId) +
-        ")"
-    );
-  }
+  await clickXhsStatementControl(page, triggerId);
+  console.log("[xhs] 已打开内容类型声明下拉");
 
   // 2. 等下拉项渲染（字符串 evaluate，避开 babel 转译）
   try {
-    await page.waitForFunction(
+    await pollPageUntil(
+      page,
       "(function(){" +
         "var ns=document.querySelectorAll('.d-options-wrapper .d-option-name');" +
         "for(var i=0;i<ns.length;i++){" +
@@ -109,15 +115,15 @@ async function selectXhsCreativeStatement(page, data) {
         "}" +
         "return false;" +
         "})()",
-      { timeout: WAIT_SELECTOR_APPEAR_MS }
+      10000,
+      200
     );
   } catch (e) {
-    console.warn("小红书声明下拉项未出现:", e?.message || e);
-    return;
+    throw new Error("小红书声明下拉项未出现：" + (e?.message || e));
   }
 
   // 3. 找目标行对应的 handler：.d-options 里 handler 和 content 是兄弟 grid-item，
-  //    用 style="grid-area: N / x / ..." 里的行号 N 对齐。打临时 id 后用 page.click 真鼠标事件。
+  //    用 style="grid-area: N / x / ..." 里的行号 N 对齐，再发送坐标鼠标事件。
   const optId = await page.evaluate(
     "(function(){" +
       "var target=" +
@@ -155,32 +161,13 @@ async function selectXhsCreativeStatement(page, data) {
       "})()"
   );
   if (!optId) {
-    console.warn("未找到小红书声明选项: " + label);
-    return;
+    throw new Error("未找到小红书声明选项: " + label);
   }
-  try {
-    await page.click("#" + optId, { delay: 80 });
-  } catch (e) {
-    console.warn("[xhs] 点击选项 page.click 失败，DOM 派发:", e?.message || e);
-    await page.evaluate(
-      "(function(id){" +
-        "var el=document.getElementById(id);" +
-        "if(!el)return;" +
-        "var r=el.getBoundingClientRect();" +
-        "var o={bubbles:true,cancelable:true,view:window,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0};" +
-        "el.dispatchEvent(new MouseEvent('mousedown',o));" +
-        "el.dispatchEvent(new MouseEvent('mouseup',o));" +
-        "el.dispatchEvent(new MouseEvent('click',o));" +
-        "})(" +
-        JSON.stringify(optId) +
-        ")"
-    );
-  }
-  await page.waitForTimeout(400);
+  await clickXhsStatementControl(page, optId);
 
   // 4. 验证：只看声明 select 自己的 placeholder/description（按 triggerId 限定范围），
   //    避免把页面其它 .d-select-placeholder（如"添加地点"）当成结果。
-  const selectedNow = await page.evaluate(
+  const selectedExpression =
     "(function(id){" +
       "var sel=document.getElementById(id);" +
       "if(!sel)return '';" +
@@ -193,16 +180,17 @@ async function selectXhsCreativeStatement(page, data) {
       "return '';" +
       "})(" +
       JSON.stringify(triggerId) +
-      ")"
-  );
-  if (selectedNow) {
+      ")";
+  await pollPageUntil(page,
+    "(" + selectedExpression + ")===" + JSON.stringify(label.replace(/\s+/g, "").trim()),
+    5000, 200, "小红书内容类型声明未核验通过：" + label);
+  const selectedNow = await page.evaluate(selectedExpression);
+  if (selectedNow === label.replace(/\s+/g, "").trim()) {
     console.log(
       "[xhs] 已选择内容类型声明: " + label + "（页面显示=" + selectedNow + "）"
     );
   } else {
-    console.warn(
-      "[xhs] 点了选项但未观察到 placeholder 被替换，可能没真正选中: " + label
-    );
+    throw new Error("小红书内容类型声明未核验通过，期望 " + label + "，页面显示 " + (selectedNow || "空"));
   }
 }
 
@@ -396,6 +384,10 @@ export default async function (page, data, window, event) {
     await selectXhsCreativeStatement(page, data);
   } catch (e) {
     console.warn("小红书内容类型声明选择未完成:", e?.message || e);
+    await replyPublishFailure({ event, data, page, window,
+      message: "小红书内容类型声明未确认，已停止投稿：" + (e?.message || e),
+      extraPayload: { retryable: false, needsAttention: true }, closeWindow: false });
+    return;
   }
 
   try {
