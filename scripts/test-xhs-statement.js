@@ -17,6 +17,7 @@ async function scenario(mode) {
   const document={querySelectorAll(s){if(s==='.d-select-placeholder')return mode==='missing'?[]:[placeholder];if(s.includes('.d-option-name'))return opened?[option]:[];return [];},getElementById(id){return id===select.id?select:id===handler.id?handler:null;}};
   class MouseEvent{constructor(type){this.type=type}}
   const context=vm.createContext({document,window:{innerWidth:1300,innerHeight:800,getComputedStyle:()=>({display:'block',visibility:'visible'})},MouseEvent,console:{log(){},warn(){}},Date,Error,JSON,XHS_SUPPORTED_STATEMENT_LABELS:new Set(['笔记含AI合成内容']),isCreativeStatementNone:v=>!v||v==='none',resolveXhsCreativeStatementLabel:()=> '笔记含AI合成内容',WAIT_SELECTOR_APPEAR_MS:300000,pollPageUntil:async(page,expression)=>{for(let i=0;i<3;i++)if(await page.evaluate(expression))return;throw Error('bounded polling timeout');}});
+  context.pausePublishStep=async()=>{};
   vm.runInContext(source.slice(begin,end).replace(/export async/g,'async')+'\nthis.run=selectXhsCreativeStatement;',context);
   const page={evaluate:async(expression)=>vm.runInContext(expression,context),click:async()=>{slowClicks++;throw Error('Runtime.callFunctionOn timed out')},waitForFunction:async(expression)=>{if(!vm.runInContext(expression,context))throw Error('timeout')},waitForTimeout:async()=>{},mouse:{click:async()=>{coordinateClicks++;if(!opened)opened=true;else if(mode!=='wrong')selected='笔记含AI合成内容';}}};
   let failure;

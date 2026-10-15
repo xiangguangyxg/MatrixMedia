@@ -1,5 +1,6 @@
 import { fillVerifiedText, waitVerifiedSubmit, statementAliases } from "./verifiedForm.js";
 import path from "path";
+import { pausePublishStep } from "./publishStepPacing.js";
 import {
   readPageUrl,
   replyPublishFailure,
@@ -32,6 +33,7 @@ async function selectKsCreativeStatement(page, data) {
   await trigger.click();
   const selector = '.ant-select-dropdown .ant-select-item-option, .ant-select-dropdown [role="option"]';
   await page.waitForSelector(selector, {timeout:15000});
+  await pausePublishStep(page, data, "declarationOpen");
   const options = await page.$$(selector);
   let chosen=false;
   for (const option of options) {
@@ -68,13 +70,16 @@ export default async function (page, data, window, event) {
     }
 
     await pollPageUntil(page, () => !!document.querySelector("#preview-tours video"), WAIT_UPLOAD_PROCESSING_MS, 2000, "等待快手视频上传完成超时");
+    await pausePublishStep(page, data, "uploadReady");
 
     const text = buildPlatformVideoText("快手", data.data);
     const selector = "#work-description-edit";
     await page.waitForSelector(selector, { timeout: WAIT_SELECTOR_APPEAR_MS });
     const description = [text.title, text.description].filter(Boolean).join("\n");
     await fillVerifiedText(page, selector, description);
+    await pausePublishStep(page, data, "descriptionAndTags");
     await selectKsCreativeStatement(page, data);
+    await pausePublishStep(page, data, "declaration");
 
     // 用 pollPageUntil 替代 waitForSelector，避免 puppeteer 默认 protocolTimeout
     // (约 180s) 在大文件/弱网下把单次 Runtime.callFunctionOn 砍掉。
@@ -103,6 +108,7 @@ export default async function (page, data, window, event) {
     // 在 hidden window 下几何中心常落不到真正的 <button> 上，结果是"看起来点过了但没发"。
     // 改为在 evaluate 内部遍历真实 button / 行 div，直接调 DOM .click()，避开鼠标几何问题。
     // 快手草稿功能和发布一个逻辑一个是 发布 一个是取消两个字
+    await pausePublishStep(page, data, "beforeSubmit");
     const urlBefore = readPageUrl(page);
     const clicked = await page.evaluate((text) => {
       const norm = (t) =>

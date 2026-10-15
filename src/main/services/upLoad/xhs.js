@@ -1,4 +1,5 @@
 import path from "path";
+import { pausePublishStep } from "./publishStepPacing.js";
 import {
   readPageUrl,
   replyPublishFailure,
@@ -122,6 +123,7 @@ export async function selectXhsCreativeStatement(page, data) {
     throw new Error("小红书声明下拉项未出现：" + (e?.message || e));
   }
 
+  await pausePublishStep(page, data, "declarationOpen");
   // 3. 找目标行对应的 handler：.d-options 里 handler 和 content 是兄弟 grid-item，
   //    用 style="grid-area: N / x / ..." 里的行号 N 对齐，再发送坐标鼠标事件。
   const optId = await page.evaluate(
@@ -267,6 +269,7 @@ export default async function (page, data, window, event) {
     const uploadInput = await page.$(uploadSelector);
     if (!uploadInput) throw new Error("未找到上传 input");
     await uploadInput.uploadFile(path.resolve(data.filePath));
+    await pausePublishStep(page, data, "fileSelected");
   } catch (err) {
     console.error("❌ 小红书文件上传失败:", err);
     // 文件上传是流程起点，失败必须重试，把异常抛给 puppeteerFile 的 actionCheckTimer
@@ -302,6 +305,7 @@ export default async function (page, data, window, event) {
 
   await waitXhs(page);
 
+  await pausePublishStep(page, data, "title");
   // 正文/标签：用 keyboard.type + 字符串形式的 page.evaluate（避免 webpack 转译炸 "n is not defined"）
   try {
     const editorSelector = ".tiptap.ProseMirror";
@@ -348,6 +352,7 @@ export default async function (page, data, window, event) {
       }
     }
 
+    await pausePublishStep(page, data, "description");
     // 输入标签：每个 #xxx 后 Enter 选中候选弹窗第一项
     if (tags.length) {
       if (descText) {
@@ -372,6 +377,7 @@ export default async function (page, data, window, event) {
 
   await waitXhs(page);
 
+  await pausePublishStep(page, data, "tags");
   // === PK封面开关：不需要 PK 封面，若页面默认开启则关闭 ===
   try {
     await closeCheckedXhsPkCoverSwitch(page);
@@ -382,6 +388,7 @@ export default async function (page, data, window, event) {
   // 选择内容类型声明（无标注 / 不支持值会跳过）
   try {
     await selectXhsCreativeStatement(page, data);
+    await pausePublishStep(page, data, "declaration");
   } catch (e) {
     console.warn("小红书内容类型声明选择未完成:", e?.message || e);
     await replyPublishFailure({ event, data, page, window,
@@ -458,6 +465,7 @@ export default async function (page, data, window, event) {
     }
 
     // 用 page.mouse.click 在宿主对应位置点 —— 坐标会被浏览器路由进 closed shadow 内部 button
+    await pausePublishStep(page, data, "beforeSubmit");
     const box = await hostHandle.boundingBox();
     if (!box) throw new Error("发布按钮宿主无 boundingBox（未渲染或被遮挡）");
     console.log(

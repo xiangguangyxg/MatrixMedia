@@ -19,6 +19,7 @@ import { resolveChromePath } from "./chromeConfig.js";
 import xhsChromeHandler from "./upLoad/xhsChrome.js";
 import { isPlatformLoginUrl } from "../../shared/platformPageState.js";
 import { normalizeVideoMetadata } from "../../shared/videoMetadata.js";
+import { loadStepPacing } from "./upLoad/publishStepPacing.js";
 import { capturePublishFailureScreenshot } from "./upLoad/failureScreenshot.js";
 
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
@@ -250,6 +251,17 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
   const maxRetries = getPublishAttemptLimit(data, 5);
   let currentAttempt = 0;
   let finished = false;
+  // 不序列化闭包；停顿结束后再次确认任务仍有效，避免取消后继续提交。
+  Object.defineProperty(data, "assertPublishTaskActive", {
+    configurable: true,
+    value() {
+      if (finished) {
+        const error = new Error("上传任务已结束或取消");
+        error.retryable = false;
+        throw error;
+      }
+    },
+  });
   let activeBrowser = null;
   let activeWin = null;
   let activePage = null;
@@ -326,6 +338,15 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
       return replied;
     },
   });
+
+  try {
+    data.publishStepPacing = loadStepPacing(app.getPath("userData"));
+  } catch (error) {
+    safeReply("puppeteerFile-done", { ...data, status: false, retryable: false,
+      needsAttention: true, message: "发布步骤节奏配置读取失败：" + error.message });
+    finishOnce();
+    return;
+  }
 
   // 小红书 + 真实 Chrome 浏览器发布（替代 Electron BrowserWindow）
   let _xhsRealChromeFallback = false;
@@ -434,8 +455,14 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
       });
 
       // 4. 创建 page 并注入反检测脚本
+      activeBrowser = realBrowser;
+      if (finished) {
+        realBrowser.disconnect();
+        return;
+      }
       const page =
         (await realBrowser.pages())[0] || (await realBrowser.newPage());
+      activePage = page;
 
       // 注入反自动化检测（在页面 JS 执行前生效）
       await page.evaluateOnNewDocument(() => {
@@ -524,6 +551,7 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
       // 7. 执行发布
       await xhsChromeHandler(page, data, realBrowser, createAttemptTransport());
     } catch (err) {
+      if (finished) return;
       console.error("[xhs-chrome] 真实浏览器发布失败:", err?.message || err);
       safeReply("puppeteerFile-done", {
         ...data,

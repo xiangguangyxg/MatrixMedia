@@ -1,4 +1,5 @@
 import path from "path";
+import { pausePublishStep } from "./publishStepPacing.js";
 import { resolveDyCreativeStatementLabel } from "../../../shared/creativeStatement.js";
 import {
   readPageUrl,
@@ -74,6 +75,7 @@ async function selectDyCreativeStatement(page, data) {
   if (!picked) {
     throw new Error(`未找到抖音自主声明选项: ${label}`);
   }
+  await pausePublishStep(page, data, "declarationOption");
   await page.waitForTimeout(400);
 
   // 点击弹窗里的「确认」按钮提交声明
@@ -137,6 +139,7 @@ export default async function (page, data, window, event) {
     // 取最后一个 input 元素
     const uploadFileHandle = uploadInputs[uploadInputs.length - 1];
     await uploadFileHandle.uploadFile(path.resolve(data.filePath));
+    await pausePublishStep(page, data, "fileSelected");
   } catch (e) {
     console.error("❌ 输入文件失败", e);
   }
@@ -151,6 +154,7 @@ export default async function (page, data, window, event) {
     await input.click({ clickCount: 3 }); // 三击全选
     await page.keyboard.press("Backspace"); // 删除内容
     await page.type(".semi-input", text.title, { delay: 50 });
+    await pausePublishStep(page, data, "title");
 
     const input2 = await page.$(".zone-container.editor-kit-container");
     await input2.click(); // 三击全选
@@ -162,6 +166,7 @@ export default async function (page, data, window, event) {
     if (normalizeVideoTags(data.data.tags).length) {
       await page.keyboard.press("Space");
     }
+    await pausePublishStep(page, data, "descriptionAndTags");
   } catch (e) {
     console.error("❌ 输入标题失败", e);
   }
@@ -235,6 +240,8 @@ export default async function (page, data, window, event) {
 
     // 自主声明入口在视频转码完成后才出现，必须在点击发布前完成
     await selectDyCreativeStatementWithRetry(page, data);
+    await pausePublishStep(page, data, "declaration");
+    await pausePublishStep(page, data, "beforeSubmit");
 
     const urlBefore = readPageUrl(page);
     await clickDyPublish(page, isDraftMode);

@@ -1,5 +1,6 @@
 import { fillVerifiedText } from "./verifiedForm.js";
 import path from "path";
+import { pausePublishStep } from "./publishStepPacing.js";
 import {
   readPageUrl,
   replyPublishFailure,
@@ -169,6 +170,7 @@ export async function selectBlblCreativeStatement(page, data) {
   const label = resolveBlblCreativeStatementLabel(value);
   await clickBlblSelector(page, ".statement-content .bcc-select-input-wrap");
   await waitBlblSelector(page, ".statement-content .bcc-select-list-wrap", true);
+  await pausePublishStep(page, data, "declarationOpen");
   const picked = await page.evaluate((text, authOption) => {
     const options = document.querySelectorAll(authOption
       ? ".statement-content .auth-content .option-text"
@@ -271,13 +273,18 @@ export default async function (page, data, window, event) {
     await waitBlblSelector(page, '.bcc-upload input[type="file"]');
     const upload = await page.$('.bcc-upload input[type="file"]');
     await upload.uploadFile(path.resolve(data.filePath));
+    await pausePublishStep(page, data, "fileSelected");
     await page.waitForTimeout(500);
     await assertBlblReady(page);
     await fillVerifiedText(page, '.input-instance input[placeholder="请输入稿件标题"]', text.title);
+    await pausePublishStep(page, data, "title");
     await selectBlblCreativeStatement(page, data);
+    await pausePublishStep(page, data, "declaration");
     await selectBlblCategory(page, data.publishOptions && data.publishOptions.category || "影视");
+    await pausePublishStep(page, data, "category");
     await assertBlblReady(page);
     await fillVerifiedText(page, ".desc-container .ql-editor", text.description || "");
+    await pausePublishStep(page, data, "description");
     await waitBlblSelector(page, ".tag-container .input-instance input");
     const input = await page.$(".tag-container .input-instance input");
     await input.focus();
@@ -287,6 +294,7 @@ export default async function (page, data, window, event) {
       await page.waitForTimeout(300);
     }
     await waitBlblUpload(page);
+    await pausePublishStep(page, data, "tagsAndUploadReady");
     // 已有自动封面时不再等不存在的 cover-empty（最长五分钟）。
     const hasCover = await page.evaluate(() => !!document.querySelector(".cover-main .cover-img"));
     if (!hasCover) await handleBlblCover(page);
@@ -294,6 +302,8 @@ export default async function (page, data, window, event) {
     // 单击提交；结果不确定时返回 needsAttention，绝不自动二次点击或重传。
     const submitSelector = isDraftMode ? ".submit-draft" : ".submit-container .submit-add";
     await waitBlblSelector(page, submitSelector);
+    await pausePublishStep(page, data, "beforeSubmit");
+    await assertBlblReady(page);
     submissionAttempted = true;
     await clickBlblSelector(page, submitSelector);
     const confirmation = await waitBlblSubmit(page, isDraftMode);

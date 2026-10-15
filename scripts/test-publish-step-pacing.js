@@ -1,0 +1,35 @@
+"use strict";
+const assert=require('assert'),fs=require('fs'),path=require('path'),vm=require('vm');
+const source=fs.readFileSync(path.join(__dirname,'../src/main/services/upLoad/publishStepPacing.js'),'utf8');
+let fileError='ENOENT',fileText='{}';
+const context=vm.createContext({fs:{readFileSync(){if(fileError)throw Object.assign(Error('read'),{code:fileError});return fileText}},path,console:{log(){}},Math,Number,Object,Error,JSON});
+vm.runInContext(source.replace(/^import .*;\r?\n/gm,'').replace(/export /g,'')+';this.api={normalizeStepPacing,loadStepPacing,stepDelayMs,pausePublishStep};',context);
+const p=context.api;
+assert.equal(p.stepDelayMs(undefined,'title',()=>0),2000);
+assert.equal(p.stepDelayMs(undefined,'title',()=>1),4000);
+assert.equal(p.stepDelayMs(undefined,'beforeSubmit',()=>0),5000);
+assert.equal(p.stepDelayMs(undefined,'beforeSubmit',()=>1),8000);
+assert.equal(p.stepDelayMs({enabled:false},'beforeSubmit',()=>1),0);
+assert.throws(()=>p.normalizeStepPacing({stepMinMs:4001,stepMaxMs:4000}),/range/);
+assert.throws(()=>p.normalizeStepPacing({stepMinMs:-1}),/stepMinMs/);
+assert.throws(()=>p.normalizeStepPacing({stepMaxMs:Infinity}),/stepMaxMs/);
+assert.throws(()=>p.normalizeStepPacing({enabled:'false'}),/enabled/);
+assert.equal(p.loadStepPacing('fixture').stepMinMs,2000);
+fileError=null;fileText='{broken';assert.throws(()=>p.loadStepPacing('fixture'),/JSON|Unexpected|Expected/);
+fileError='EACCES';assert.throws(()=>p.loadStepPacing('fixture'),/read/);
+fileError=null;fileText=JSON.stringify({stepMinMs:3000,stepMaxMs:6000});assert.equal(p.loadStepPacing('fixture').stepMinMs,3000);
+(async()=>{
+  const waits=[];const page={waitForTimeout:async ms=>waits.push(ms)};
+  await p.pausePublishStep(page,{pt:'test'},'title');await p.pausePublishStep(page,{pt:'test'},'beforeSubmit');
+  assert(waits[0]>=2000&&waits[0]<=4000);assert(waits[1]>=5000&&waits[1]<=8000);
+  await p.pausePublishStep(page,{publishStepPacing:{enabled:false}},'title');assert.equal(waits.length,2);
+  let cancelled=false,submitted=false;const data={};
+  Object.defineProperty(data,'assertPublishTaskActive',{value(){if(cancelled)throw Error('cancelled')}});
+  await assert.rejects(async()=>{
+    await p.pausePublishStep({waitForTimeout:async()=>{cancelled=true}},data,'beforeSubmit');
+    submitted=true;
+  },/cancelled/);
+  assert.equal(submitted,false,'cancelling during pause must prevent submission');
+  await assert.rejects(()=>p.pausePublishStep(page,data,'title'),/cancelled/);
+  console.log('PASS publish step pacing ranges, configuration, disabled mode, delays and cancellation');
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,5 +1,6 @@
 import { fillVerifiedText, waitVerifiedSubmit, statementAliases } from "./verifiedForm.js";
 import path from "path";
+import { pausePublishStep } from "./publishStepPacing.js";
 import maybeClosePublishWindow from "./closeWindow.js";
 import { resolveVideoLinkOption } from "../../../shared/videoLink.js";
 import {
@@ -107,7 +108,7 @@ async function tryDeclareOriginal(page) {
  * 选择视频号「视频标注」（.post-with-mark-tag）。
  * 自行拍摄时间/地点、转载来源为平台选填，本轮只点主选项。
  */
-async function applySphCreativeStatement(page, value) {
+async function applySphCreativeStatement(page, value, data) {
   if (isCreativeStatementNone(value)) return;
   const label = resolveSphCreativeStatementLabel(value);
   const aliases = statementAliases(label, value);
@@ -125,6 +126,7 @@ async function applySphCreativeStatement(page, value) {
   if (!opened) {
     throw new Error("视频标注：未找到入口，已停止提交");
   }
+  await pausePublishStep(page, data, "declarationOpen");
 
   await page.waitForTimeout(300);
   const clicked = await page.evaluate((expected) => {
@@ -236,12 +238,14 @@ export default async function (page, data, window, event, onFinish) {
     await waitSphUploadProcessing(page);
 
     const text = buildPlatformVideoText("视频号", data.data);
+    await pausePublishStep(page, data, "uploadReady");
     const titleInput = await page.waitForSelector(
       "wujie-app.wujie_iframe >>> .post-desc-box .input-editor",
       { timeout: WAIT_SELECTOR_APPEAR_MS }
     );
     // 传统input/textarea的操作
     await fillVerifiedText(page, "wujie-app.wujie_iframe >>> .post-desc-box .input-editor", text.description);
+    await pausePublishStep(page, data, "descriptionAndTags");
     const shortTitle = text.shortTitle;
     if (shortTitle) {
       const sel2 =
@@ -251,6 +255,7 @@ export default async function (page, data, window, event, onFinish) {
       });
       let newBt = shortTitle.replace(/[，。、\/,;:!?'"()\[\]{}<>]/g, " ");
       await fillVerifiedText(page, sel2, newBt);
+      await pausePublishStep(page, data, "shortTitle");
     } else {
       console.log("视频号短标题未填写，跳过");
     }
@@ -277,12 +282,14 @@ export default async function (page, data, window, event, onFinish) {
       }
     }
 
-    await applySphCreativeStatement(page, data.data && data.data.creativeStatement);
+    await applySphCreativeStatement(page, data.data && data.data.creativeStatement, data);
+    await pausePublishStep(page, data, "declaration");
 
     await tryDeclareOriginal(page);
     await waitSphUploadProcessing(page);
 
     // 所有表单项（包括商品）完成后，草稿和发布只能二选一执行。
+    await pausePublishStep(page, data, "beforeSubmit");
     const urlBefore = readPageUrl(page);
     if (isDraftMode) await clickSphDraftButton(page);
     else await clickSphPublishButton(page);
