@@ -34,3 +34,5 @@ HTTP `/publish` 可传 `originalDeclaration`；CLI 使用 `--original-declaratio
 测试：`node scripts/test-original-declaration.js`、`test-original-declaration-api.js`、`test-original-declaration-dom.js`，并运行既有平台、声明、取消与步骤停顿回归。真实核验只用非公开草稿或不提交的编辑页，不能额外公开测试。
 
 小红书二次确认必须识别实际 `.d-modal .originalContainer`，在 `.d-checkbox` 中点击并回读协议 checkbox，等待“声明原创”按钮启用后点击，等待弹窗关闭并重新核验外层开关和 AI 标识。回执 `confirmation` 记录 `consentChecked/buttonClicked/closed`；外层开启但协议未完成不能算成功。真实 DOM 回归：`node scripts/test-xhs-original-confirmation.js`。
+
+AI 声明核验同时检查尚未关闭的声明弹窗：即使底层表单仍显示旧的 AI 值，只要声明弹窗仍显示，就返回 `pendingConfirmation:true, verified:false` 并停止提交。视频号 shadow DOM 中的 `.weui-desktop-dialog` 也纳入原创协议检测；隐藏的旧弹窗不误拦截。四平台回归：`node scripts/test-declaration-pending-dialog.js`。

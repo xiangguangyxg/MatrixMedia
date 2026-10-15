@@ -36,10 +36,16 @@ export function originalDeclarationDom(action, args) {
     return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
   };
   const aiLabels = { dy: ["内容由AI生成"], sph: ["含AI生成内容", "内容由AI生成", "Contains AI-generated content"], ks: ["内容为AI生成", "内容由AI生成"], xhs: ["笔记含AI合成内容"], blbl: ["含AI生成内容", "内容由人工智能生成", "内容由AI生成"] };
+  const dialogSelector = '.declare-original-dialog,[role="dialog"],.ant-modal,.semi-modal,.bcc-dialog,.d-modal,.weui-desktop-dialog';
+  const isOriginalDialog = el => /声明原创|原创声明|原创协议/.test(el.textContent);
   if (action === "ai") {
     const selectors = { dy: '[class*="selectText-"]', sph: ".post-with-mark-tag .select-display", ks: ".ant-select-selection-item", xhs: '[id^="__xhs_stmt_"] .d-select-description, [id^="__xhs_stmt_"] .d-select-placeholder', blbl: ".statement-content input" };
     const values = all(selectors[args.platform]).filter(visible).map(el => norm(el.value || el.getAttribute("title") || el.textContent));
     const label = aiLabels[args.platform].find(label => values.includes(norm(label)));
+    // 页面可能仍展示上一次已选值，不能用它证明尚未确认的声明弹窗已完成。
+    const pendingConfirmation = all(dialogSelector).some(el => visible(el) && !isOriginalDialog(el) &&
+      /AI|人工智能|合成/i.test(el.textContent) && /声明|标注|label/i.test(el.textContent));
+    if (pendingConfirmation) return { verified: false, label: label || "", pendingConfirmation: true };
     return { verified: Boolean(label), label: label || "" };
   }
   if (action === "authDropdown") {
@@ -94,7 +100,7 @@ export function originalDeclarationDom(action, args) {
     if (match.checked !== args.desired) match.el.click();
   }
   if (action === "dialog" || action === "confirm") {
-    const matches = all('.declare-original-dialog,[role="dialog"],.ant-modal,.semi-modal,.bcc-dialog,.d-modal').filter(visible).filter(el => /声明原创|原创声明|原创协议/.test(el.textContent));
+    const matches = all(dialogSelector).filter(visible).filter(isOriginalDialog);
     const dialogs = matches.filter(el => !matches.some(other => other !== el && el.contains(other)));
     if (dialogs.length > 1) return { ambiguous: true };
     const dialog = dialogs[0];
