@@ -261,7 +261,7 @@ async function runSingleFilePublishInner(
     console.error("MatrixMedia: 写入 pushData 初始记录失败:", e && e.message);
   }
 
-  const updateRecord = (status, message) => {
+  const updateRecord = (status, message, verification = {}) => {
     if (!recordId) return;
     try {
       changeData({
@@ -277,6 +277,7 @@ async function runSingleFilePublishInner(
           publishAbnormalCount: status === "abnormal" ? 1 : 0,
           lastPublishMessage: message || "",
           lastPublishAt: Date.now(),
+          ...verification,
         },
       });
     } catch (e) {
@@ -327,7 +328,11 @@ async function runSingleFilePublishInner(
             return;
           }
           const completion = resolvePublishCompletion(payload);
-          updateRecord(completion.recordStatus, completion.message);
+          const verification = {
+            originalDeclaration: payload && payload.originalDeclarationResult,
+            creativeStatementVerification: payload && payload.creativeStatementVerification,
+          };
+          updateRecord(completion.recordStatus, completion.message, verification);
           finish({
             exitCode: completion.exitCode,
             status: completion.status,
@@ -336,6 +341,7 @@ async function runSingleFilePublishInner(
             publishMode: completion.savedAsDraft ? "draft" : "publish",
             outcome: payload && payload.outcome,
             needsAttention: completion.needsAttention,
+            ...verification,
           });
         } else if (channel === "puppeteer-noLogin") {
           if (payload && payload.taskId != null && payload.taskId !== taskId) {

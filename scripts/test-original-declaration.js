@@ -1,0 +1,15 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const source = fs.readFileSync(path.join(__dirname, '../src/shared/originalDeclaration.js'), 'utf8');
+const context = vm.createContext({});
+vm.runInContext(source.replace(/export /g, '') + ';this.api={normalizeOriginalDeclaration};', context);
+const {normalizeOriginalDeclaration: normalize} = context.api;
+assert.equal(normalize().eligible, false);
+assert.equal(normalize({eligible:false,reason:'授权搬运，不是原创'}).eligible, false);
+const review={eligible:true,reason:'独立脚本与原创画面，音频已获授权，已核对平台条件',evidence:['content.json','sources.json'],fileSha256:'a'.repeat(64),platform:'dy'};
+assert.equal(normalize(review).eligible, true);
+for(const value of [true,'true',{eligible:'true'},{...review,evidence:[]},{...review,reason:''},{...review,fileSha256:'bad'},{...review,platform:'unknown'},{...review,exclusive:true}])assert.throws(()=>normalize(value));
+assert.equal(normalize({...review,extra:'unused'}).extra, undefined);
+console.log('PASS original eligibility requires explicit review, evidence, file hash and platform; no exclusive assertion');

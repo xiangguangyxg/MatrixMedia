@@ -17,7 +17,7 @@ async function main() {
   const originalSetTimeout = global.setTimeout;
   const originalClearTimeout = global.clearTimeout;
   const harness = {
-    app: {},
+    app: { getPath: () => require("os").tmpdir() },
     ipcMain: { on() {} },
     dialog: {},
     BrowserWindow: class {
@@ -98,6 +98,8 @@ async function main() {
       }, { reply: (channel, payload) => replies.push({ channel, payload }) },
       () => { finished++; });
     }
+    // 准备阶段会异步核对原创资格，先让初次准备完成再推进模拟计时器。
+    await new Promise((resolve) => setImmediate(resolve));
     for (let i = 0; i < 30; i++) {
       const index = timers.findIndex((timer) => !timer.cleared && timer.ms <= 3000);
       if (index < 0) break;

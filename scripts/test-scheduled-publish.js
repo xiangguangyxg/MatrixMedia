@@ -17,6 +17,7 @@ buildSync({
   bundle: true,
   platform: "node",
   format: "cjs",
+  nodePaths: (process.env.NODE_PATH || "").split(path.delimiter).filter(Boolean),
   outfile: schedulerBundle,
   external: [
     "electron",

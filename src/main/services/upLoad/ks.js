@@ -1,5 +1,6 @@
 import { fillVerifiedText, waitVerifiedSubmit, statementAliases } from "./verifiedForm.js";
 import path from "path";
+import { applyOriginalDeclaration, verifyDeclarationsBeforeSubmit } from "./originalDeclaration.js";
 import { pausePublishStep } from "./publishStepPacing.js";
 import {
   readPageUrl,
@@ -108,7 +109,9 @@ export default async function (page, data, window, event) {
     // 在 hidden window 下几何中心常落不到真正的 <button> 上，结果是"看起来点过了但没发"。
     // 改为在 evaluate 内部遍历真实 button / 行 div，直接调 DOM .click()，避开鼠标几何问题。
     // 快手草稿功能和发布一个逻辑一个是 发布 一个是取消两个字
+    await applyOriginalDeclaration(page, data);
     await pausePublishStep(page, data, "beforeSubmit");
+    await verifyDeclarationsBeforeSubmit(page, data);
     const urlBefore = readPageUrl(page);
     const clicked = await page.evaluate((text) => {
       const norm = (t) =>
@@ -203,7 +206,7 @@ export default async function (page, data, window, event) {
       window,
       event,
       message: e && e.message ? e.message : "上传失败",
-      extraPayload: { retryable: false },
+      extraPayload: { retryable: false, needsAttention: Boolean(e && e.needsAttention) },
     });
     console.error("❌ 发布失败", e);
   }

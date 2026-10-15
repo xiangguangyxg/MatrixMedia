@@ -20,6 +20,7 @@ import xhsChromeHandler from "./upLoad/xhsChrome.js";
 import { isPlatformLoginUrl } from "../../shared/platformPageState.js";
 import { normalizeVideoMetadata } from "../../shared/videoMetadata.js";
 import { loadStepPacing } from "./upLoad/publishStepPacing.js";
+import { prepareOriginalDeclaration } from "./upLoad/originalDeclaration.js";
 import { capturePublishFailureScreenshot } from "./upLoad/failureScreenshot.js";
 
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
@@ -339,11 +340,31 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
     },
   });
 
+  if (runtimeTask && typeof runtimeTask.setCancelHandler === "function") {
+    runtimeTask.setCancelHandler((reason) => {
+      if (finished) return;
+      const message = reason || "上传任务已主动中断";
+      safeReply("puppeteerFile-done", {
+        ...data,
+        status: false,
+        interrupted: true,
+        message,
+      });
+      if (activeWin && !activeWin.isDestroyed()) {
+        closePublishWinProgrammatically(activeWin);
+      }
+      finishOnce();
+    });
+  }
+
   try {
     data.publishStepPacing = loadStepPacing(app.getPath("userData"));
+    data.originalDeclarationReview = await prepareOriginalDeclaration(data);
+    data.assertPublishTaskActive();
   } catch (error) {
+    if (finished) return;
     safeReply("puppeteerFile-done", { ...data, status: false, retryable: false,
-      needsAttention: true, message: "发布步骤节奏配置读取失败：" + error.message });
+      needsAttention: true, message: "发布前配置或原创资格核查失败：" + error.message });
     finishOnce();
     return;
   }
@@ -1062,23 +1083,6 @@ async function doUpload(data, transport, queueDone, runtimeTask) {
       }, retryDelay);
     }
   };
-
-  if (runtimeTask && typeof runtimeTask.setCancelHandler === "function") {
-    runtimeTask.setCancelHandler((reason) => {
-      if (finished) return;
-      const message = reason || "上传任务已主动中断";
-      safeReply("puppeteerFile-done", {
-        ...data,
-        status: false,
-        interrupted: true,
-        message,
-      });
-      if (activeWin && !activeWin.isDestroyed()) {
-        closePublishWinProgrammatically(activeWin);
-      }
-      finishOnce();
-    });
-  }
 
   setTimeout(() => {
     createWindowAndAttempt().catch((err) => {

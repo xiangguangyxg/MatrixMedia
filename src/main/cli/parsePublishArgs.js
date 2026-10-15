@@ -14,6 +14,7 @@ import {
   VIDEO_LINK_TYPES,
   buildVideoLinkOption,
 } from "../../shared/videoLink.js";
+import { normalizeOriginalDeclaration } from "../../shared/originalDeclaration.js";
 
 export { PLATFORM_ALIASES, VIDEO_PUBLISH_CANONICAL, resolvePublishPlatform };
 
@@ -90,6 +91,12 @@ export function parsePublishArgs(subArgv) {
       out.draftTest = true;
     } else if (a === "--draft") {
       out.draft = true;
+    } else if (a === "--original-declaration-json") {
+      try {
+        out.publishOptions.originalDeclaration = normalizeOriginalDeclaration(JSON.parse(args[++i]));
+      } catch (error) {
+        return { ok: false, error: "原创资格参数错误：" + error.message };
+      }
     } else if (a === "--blbl-category") {
       const category = args[++i];
       if (!category || String(category).startsWith("--")) return { ok: false, error: "--blbl-category 需要分区名称" };
@@ -121,6 +128,10 @@ export function parsePublishArgs(subArgv) {
     return { ok: false, error: `未知平台: ${out.platform}` };
   }
   out.platform = pt;
+  if (out.publishOptions.originalDeclaration && out.publishOptions.originalDeclaration.eligible &&
+      out.publishOptions.originalDeclaration.platform !== getCreativeStatementPlatformKey(pt)) {
+    return { ok: false, error: "原创资格审查的目标平台不匹配" };
+  }
   if (out.publishOptions.category && pt !== "哔哩哔哩") return { ok: false, error: "--blbl-category 仅支持哔哩哔哩" };
   if (out.draftTest) {
     if (pt !== "快手" || out.dir || out.publishAt) return { ok:false, error:"--draft-test 仅支持快手单文件即时草稿测试" };
@@ -198,7 +209,7 @@ export function parsePublishArgs(subArgv) {
       }
       const built = buildVideoLinkOption("视频号", linkType, out.sphLinkValue);
       if (!built.ok) return { ok: false, error: built.error };
-      out.publishOptions = { link: built.value };
+      out.publishOptions = { ...out.publishOptions, link: built.value };
     }
   } else {
     out.sphLinkType = null;
@@ -336,6 +347,7 @@ export function publishBodyToArgv(body) {
   pushPair(["description", "desc"], "--description");
   pushPair(["shortTitle", "short-title"], "--short-title");
   pushPair(["blblCategory"], "--blbl-category");
+  if (body.originalDeclaration != null) argv.push("--original-declaration-json", JSON.stringify(body.originalDeclaration));
   pushPair(["bookName", "name", "book-name"], "--name");
   pushPair(["bt2"], "--bt2");
   const tags = pickBodyValue(body, ["tags", "bq"]);
@@ -422,6 +434,7 @@ const SHARED_PUBLISH_BODY_KEYS = [
   "draft",
   "platformOptions",
   "blblCategory",
+  "originalDeclaration",
   "sphLink",
   "sphProductId",
   "sph-product-id",
@@ -664,6 +677,7 @@ export function publishHelpText() {
                             到点后由应用主进程调度执行；不支持每日/每周/每月循环。
       --show            （已忽略）CLI 不显示自动化窗口
       --no-close-window 发布后不自动关窗（仅 GUI 显示窗口时有效；CLI 始终后台运行）
+      --original-declaration-json <JSON>  原创资格审查（eligible、reason；符合时须绑定平台/成片SHA256/证据），独立于AI声明
       --draft-test      快手专用：保存、恢复核验草稿，再放弃测试草稿；不会公开发布
       --draft           显式发布到草稿箱（小红书点「暂存离开」）。若账号在 GUI「媒体平台管理」
                             里开启了「默认发布到草稿」，即使不加该参数也会自动走草稿。

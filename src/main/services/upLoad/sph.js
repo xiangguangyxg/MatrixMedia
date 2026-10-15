@@ -1,5 +1,6 @@
 import { fillVerifiedText, waitVerifiedSubmit, statementAliases } from "./verifiedForm.js";
 import path from "path";
+import { applyOriginalDeclaration, verifyDeclarationsBeforeSubmit } from "./originalDeclaration.js";
 import { pausePublishStep } from "./publishStepPacing.js";
 import maybeClosePublishWindow from "./closeWindow.js";
 import { resolveVideoLinkOption } from "../../../shared/videoLink.js";
@@ -19,90 +20,6 @@ import {
   replyPublishFailure,
   replyPublishOutcome,
 } from "./publishOutcome.js";
-
-const SEL_ORIGINAL_CHECKBOX =
-  "wujie-app.wujie_iframe >>> .declare-original-checkbox .ant-checkbox-wrapper";
-const SEL_ORIGINAL_DIALOG_CHECK =
-  "wujie-app.wujie_iframe >>> .declare-original-dialog .weui-desktop-dialog label.ant-checkbox-wrapper";
-const SEL_ORIGINAL_DIALOG_OK =
-  "wujie-app.wujie_iframe >>> .declare-original-dialog .weui-desktop-dialog button.weui-desktop-btn_primary";
-
-/**
- * 声明原创：部分账号/版本无入口或已默认处理，失败不影响后续发布。
- */
-async function tryDeclareOriginal(page) {
-  let yInput;
-  try {
-    yInput = await page.waitForSelector(SEL_ORIGINAL_CHECKBOX, {
-      timeout: 3000,
-    });
-  } catch (_) {
-    console.log("声明原创：未找到勾选入口，跳过");
-    return;
-  }
-
-  try {
-    await yInput.click();
-  } catch (e) {
-    console.warn(
-      "声明原创：勾选入口点击失败，跳过",
-      e && e.message ? e.message : e
-    );
-    return;
-  }
-
-  try {
-    await page.waitForSelector(
-      "wujie-app.wujie_iframe >>> .weui-desktop-dialog__bd .protocol-text",
-      { timeout: 2500 }
-    );
-    const protocol = await page.$(
-      "wujie-app.wujie_iframe >>> .weui-desktop-dialog__bd .protocol-text"
-    );
-    if (protocol) await protocol.click();
-    await page.waitForTimeout(300);
-    const clicked = await page.evaluate(() => {
-      const app = document.querySelector("wujie-app.wujie_iframe");
-      if (!app || !app.shadowRoot) return false;
-      const bodies = app.shadowRoot.querySelectorAll(
-        ".weui-desktop-dialog__bd"
-      );
-      for (const body of bodies) {
-        const dlg = body.closest(".weui-desktop-dialog") || body.parentElement;
-        const btns = (dlg || body).querySelectorAll(
-          "button.weui-desktop-btn_primary"
-        );
-        for (const btn of btns) {
-          if (
-            String(btn.textContent || "")
-              .trim()
-              .includes("声明原创")
-          ) {
-            btn.click();
-            return true;
-          }
-        }
-      }
-      return false;
-    });
-    if (clicked) await page.waitForTimeout(800);
-  } catch (_) {
-    /* 非首次账号或协议弹窗未出现 */
-  }
-
-  try {
-    const cBox = await page.waitForSelector(SEL_ORIGINAL_DIALOG_CHECK, {
-      timeout: 3000,
-    });
-    await cBox.click();
-    const aBtn = await page.waitForSelector(SEL_ORIGINAL_DIALOG_OK, {
-      timeout: 3000,
-    });
-    await aBtn.click();
-  } catch (_) {
-    console.log("声明原创：未出现后续确认框或已完成，跳过");
-  }
-}
 
 /**
  * 选择视频号「视频标注」（.post-with-mark-tag）。
@@ -285,11 +202,12 @@ export default async function (page, data, window, event, onFinish) {
     await applySphCreativeStatement(page, data.data && data.data.creativeStatement, data);
     await pausePublishStep(page, data, "declaration");
 
-    await tryDeclareOriginal(page);
+    await applyOriginalDeclaration(page, data);
     await waitSphUploadProcessing(page);
 
     // 所有表单项（包括商品）完成后，草稿和发布只能二选一执行。
     await pausePublishStep(page, data, "beforeSubmit");
+    await verifyDeclarationsBeforeSubmit(page, data);
     const urlBefore = readPageUrl(page);
     if (isDraftMode) await clickSphDraftButton(page);
     else await clickSphPublishButton(page);
@@ -323,7 +241,7 @@ export default async function (page, data, window, event, onFinish) {
           ? `${detail.slice(0, 400)}…`
           : detail || "上传失败",
       closeWindow: true,
-      extraPayload: { retryable: false },
+      extraPayload: { retryable: false, needsAttention: Boolean(err && err.needsAttention) },
     });
   }
 }

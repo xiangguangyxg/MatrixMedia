@@ -1,5 +1,6 @@
 import { fillVerifiedText } from "./verifiedForm.js";
 import path from "path";
+import { applyOriginalDeclaration, verifyDeclarationsBeforeSubmit } from "./originalDeclaration.js";
 import { pausePublishStep } from "./publishStepPacing.js";
 import {
   readPageUrl,
@@ -190,7 +191,7 @@ export async function selectBlblCreativeStatement(page, data) {
       // 授权声明是独立选项；不可仅凭输入框或点击次数推断成功。
       const option = document.querySelector(".statement-content .auth-content");
       return !!option && (option.textContent || "").trim() === text &&
-        !!option.querySelector(".bcc-icon-ic_MenuButton-tick,.selected,.checked");
+        !!option.querySelector(".option-text-selected,.icon-sprite-duihao,.bcc-icon-ic_MenuButton-tick,.selected,.checked");
     }
     const input = document.querySelector(".statement-content input");
     return !!input && input.value.trim() === text;
@@ -302,7 +303,9 @@ export default async function (page, data, window, event) {
     // 单击提交；结果不确定时返回 needsAttention，绝不自动二次点击或重传。
     const submitSelector = isDraftMode ? ".submit-draft" : ".submit-container .submit-add";
     await waitBlblSelector(page, submitSelector);
+    await applyOriginalDeclaration(page, data);
     await pausePublishStep(page, data, "beforeSubmit");
+    await verifyDeclarationsBeforeSubmit(page, data);
     await assertBlblReady(page);
     submissionAttempted = true;
     await clickBlblSelector(page, submitSelector);
@@ -317,6 +320,6 @@ export default async function (page, data, window, event) {
       return;
     }
     await replyPublishFailure({ page, data, window, event, message: e && e.message || "哔哩哔哩发布失败",
-      extraPayload: { retryable: false, needsAttention: !!(e && e.requiresVerification) } });
+      extraPayload: { retryable: false, needsAttention: !!(e && (e.requiresVerification || e.needsAttention)) } });
   }
 }

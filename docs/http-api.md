@@ -142,6 +142,8 @@
 
 **创作声明优先级**（与 GUI 一致）：`platforms[].creativeStatement` > `creativeStatements[平台]` > `creativeStatement`。
 
+`originalDeclaration` 为独立原创资格审查对象，和 `creativeStatement:ai_generated` 可同时传入。符合条件时包含 `eligible:true`、`reason`、`platform`、`fileSha256` 和 `evidence`；不符合或未确认时传 `eligible:false` 和具体 `reason`，缺省也不声明原创。多平台应分别传在 `platforms[]` 内。实际文件哈希与目标平台必须匹配；声明结果及 AI 保留核验会写入回执/历史。详见[原创声明流程](original-declaration.md)。
+
 视频号已支持「视频标注」创作声明。某平台不支持所选值时回退为 `none`。可用 `GET /creative-statements` 查询各平台可用选项。
 
 **响应体（JSON）**：

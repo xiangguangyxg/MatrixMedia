@@ -1,5 +1,6 @@
 import path from "path";
 import { pausePublishStep } from "./publishStepPacing.js";
+import { applyOriginalDeclaration, verifyDeclarationsBeforeSubmit } from "./originalDeclaration.js";
 import {
   readPageUrl,
   replyPublishFailure,
@@ -389,10 +390,11 @@ export default async function (page, data, window, event) {
   try {
     await selectXhsCreativeStatement(page, data);
     await pausePublishStep(page, data, "declaration");
+    await applyOriginalDeclaration(page, data);
   } catch (e) {
     console.warn("小红书内容类型声明选择未完成:", e?.message || e);
     await replyPublishFailure({ event, data, page, window,
-      message: "小红书内容类型声明未确认，已停止投稿：" + (e?.message || e),
+      message: "小红书内容类型或原创声明未确认，已停止投稿：" + (e?.message || e),
       extraPayload: { retryable: false, needsAttention: true }, closeWindow: false });
     return;
   }
@@ -466,6 +468,7 @@ export default async function (page, data, window, event) {
 
     // 用 page.mouse.click 在宿主对应位置点 —— 坐标会被浏览器路由进 closed shadow 内部 button
     await pausePublishStep(page, data, "beforeSubmit");
+    await verifyDeclarationsBeforeSubmit(page, data);
     const box = await hostHandle.boundingBox();
     if (!box) throw new Error("发布按钮宿主无 boundingBox（未渲染或被遮挡）");
     console.log(

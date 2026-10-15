@@ -1,4 +1,5 @@
 import path from "path";
+import { applyOriginalDeclaration, verifyDeclarationsBeforeSubmit } from "./originalDeclaration.js";
 import { pausePublishStep } from "./publishStepPacing.js";
 import { resolveDyCreativeStatementLabel } from "../../../shared/creativeStatement.js";
 import {
@@ -241,7 +242,9 @@ export default async function (page, data, window, event) {
     // 自主声明入口在视频转码完成后才出现，必须在点击发布前完成
     await selectDyCreativeStatementWithRetry(page, data);
     await pausePublishStep(page, data, "declaration");
+    await applyOriginalDeclaration(page, data);
     await pausePublishStep(page, data, "beforeSubmit");
+    await verifyDeclarationsBeforeSubmit(page, data);
 
     const urlBefore = readPageUrl(page);
     await clickDyPublish(page, isDraftMode);
@@ -263,6 +266,7 @@ export default async function (page, data, window, event) {
       window,
       event,
       message: detail.length > 200 ? `${detail.slice(0, 200)}…` : detail,
+      extraPayload: e && e.retryable === false ? { retryable: false, needsAttention: true } : {},
       // 抖音发布失败后窗口是否关闭沿用原行为（上游统一处理）
       closeWindow: false,
     });
