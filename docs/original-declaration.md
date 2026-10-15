@@ -32,3 +32,5 @@ HTTP `/publish` 可传 `originalDeclaration`；CLI 使用 `--original-declaratio
 - `failed`：资格、控件、协议、选中状态或 AI 保留核验失败，返回 `retryable:false, needsAttention:true`，停止提交。
 
 测试：`node scripts/test-original-declaration.js`、`test-original-declaration-api.js`、`test-original-declaration-dom.js`，并运行既有平台、声明、取消与步骤停顿回归。真实核验只用非公开草稿或不提交的编辑页，不能额外公开测试。
+
+小红书二次确认必须识别实际 `.d-modal .originalContainer`，在 `.d-checkbox` 中点击并回读协议 checkbox，等待“声明原创”按钮启用后点击，等待弹窗关闭并重新核验外层开关和 AI 标识。回执 `confirmation` 记录 `consentChecked/buttonClicked/closed`；外层开启但协议未完成不能算成功。真实 DOM 回归：`node scripts/test-xhs-original-confirmation.js`。

@@ -94,18 +94,30 @@ export function originalDeclarationDom(action, args) {
     if (match.checked !== args.desired) match.el.click();
   }
   if (action === "dialog" || action === "confirm") {
-    const dialogs = all('.declare-original-dialog,[role="dialog"],.ant-modal,.semi-modal,.bcc-dialog').filter(visible).filter(el => /声明原创|原创声明|原创协议/.test(el.textContent));
+    const matches = all('.declare-original-dialog,[role="dialog"],.ant-modal,.semi-modal,.bcc-dialog,.d-modal').filter(visible).filter(el => /声明原创|原创声明|原创协议/.test(el.textContent));
+    const dialogs = matches.filter(el => !matches.some(other => other !== el && el.contains(other)));
     if (dialogs.length > 1) return { ambiguous: true };
     const dialog = dialogs[0];
     if (!dialog) return null;
     if (action === "confirm") {
-      for (const input of dialog.querySelectorAll('input[type="checkbox"]')) {
-        const text = norm(input.closest("label") && input.closest("label").textContent);
-        if (!input.checked && !input.disabled && /已阅读|同意.*原创|原创.*协议/.test(text) && !/独家|首发|付费|营销/.test(text)) input.click();
+      const agreements = Array.from(dialog.querySelectorAll('input[type="checkbox"]')).filter(input => {
+        const wrapper = input.closest('label,.d-checkbox');
+        const text = norm(wrapper && wrapper.textContent);
+        return /已阅读|同意.*原创|原创.*协议/.test(text) && !/独家|首发|付费|营销/.test(text);
+      });
+      for (const input of agreements) {
+        if (input.disabled) return { error: "原创协议勾选框不可用" };
+        if (!input.checked) {
+          // 小红书由 d-checkbox 父节点处理点击；不能只写 checked 属性。
+          (input.closest('.d-checkbox') || input).click();
+          return { pending: true, consentChecked: false };
+        }
       }
+      if (args.platform === "xhs" && dialog.querySelector('.originalContainer') && agreements.length !== 1) return { error: "未找到唯一的原创声明须知勾选框" };
       const button = Array.from(dialog.querySelectorAll("button")).find(el => visible(el) && !el.disabled && /^(同意|确定|确认|声明原创|同意并声明原创)$/.test(norm(el.textContent)));
-      if (!button) return { error: "未找到原创协议确认按钮" };
+      if (!button) return { pending: true, consentChecked: agreements.length > 0 && agreements.every(input => input.checked) };
       button.click();
+      return { consentChecked: agreements.length > 0 && agreements.every(input => input.checked), buttonClicked: true };
     }
     return { text: String(dialog.innerText || dialog.textContent || "").trim() };
   }
@@ -165,17 +177,25 @@ export async function applyOriginalDeclaration(page, data) {
         if (dialog.ambiguous || !review.eligible || review.acceptedTermsSha256 !== result.termsSha256) throw new Error("原创协议尚未核对或已变更，保留页面并停止提交");
         if (/独家|首发/.test(result.termsText)) throw new Error("原创协议包含独家或首发条件，本流程不自动接受");
         if (data.data && data.data.creativeStatement === "ai_generated" && /(?:不得|不能|不支持|不属于).{0,30}(?:AI|人工智能)|(?:AI|人工智能).{0,30}(?:不得|不能|不支持|不属于)/i.test(result.termsText)) throw new Error("原创协议对 AI 内容有限制，须重新判断资格");
-        const confirmation = await page.evaluate(originalDeclarationDom, "confirm", { platform });
-        if (confirmation && confirmation.error) throw new Error(confirmation.error);
+        let confirmation;
+        for (let i = 0; i < 25; i++) {
+          confirmation = await page.evaluate(originalDeclarationDom, "confirm", { platform });
+          if (!confirmation || confirmation.error || confirmation.buttonClicked) break;
+          await page.waitForTimeout(200);
+        }
+        if (!confirmation || confirmation.error || !confirmation.buttonClicked) throw new Error(confirmation && confirmation.error || "原创协议勾选或确认按钮核验失败");
+        result.confirmation = confirmation;
       }
       let verified = false;
       for (let i = 0; i < 25; i++) {
         const states = await page.evaluate(originalDeclarationDom, "read", { platform });
-        if (states.length === 1 && states[0].label === control.label && states[0].checked === review.eligible) { verified = true; break; }
+        const pendingDialog = await page.evaluate(originalDeclarationDom, "dialog", { platform });
+        if (!pendingDialog && states.length === 1 && states[0].label === control.label && states[0].checked === review.eligible) { verified = true; break; }
         await page.waitForTimeout(200);
       }
       if (!verified) throw new Error("原创声明选中状态核验失败");
       if (await page.evaluate(originalDeclarationDom, "dialog", { platform })) throw new Error("原创协议仍未确认，已停止提交");
+      if (result.confirmation) result.confirmation.closed = true;
       result.status = review.eligible ? "selected" : "not_claimed";
       result.verified = true;
       result.selected = review.eligible;
