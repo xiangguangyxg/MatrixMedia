@@ -20,6 +20,8 @@ HTTP `/publish` 可传 `originalDeclaration`；CLI 使用 `--original-declaratio
 
 只操作具有可读选中状态的独立原创控件，不点击普通“原创声明”标题，不把 AI 下拉选项或“本人实拍”当成原创承诺。B站“内容为自制：未经作者允许，禁止转载”为独立可选授权声明，符合条件时选择并核验其勾选标记，同时确认 AI 主声明未改变。不选择首发或独家。
 
+小红书原创开关在 AI 声明上方的 `.custom-switch-card` 内，文字和开关是兄弟节点，读取该行原生 checkbox 核验。平台当前提示视频小于10秒不支持原创声明：运行时读取上传预览视频时长，不足10秒时即使请求审查为符合，也按平台限制不勾选，并记录 `runtimeRestriction:xhs_duration_below_10_seconds`、实际时长与关闭状态；不影响如实标注 AI。超过10秒仍需满足其它原创条件。开关因未知原因禁用时停止提交，不能强行移除 disabled。
+
 遇首次原创协议或条款变更，先保存 `termsText` / `termsSha256` 并停止提交；运营流程读取实际条款、重新判断资格后，可传相同的 `acceptedTermsSha256` 再受控恢复。不会自动接受未审查协议；包含首发/独家要求或明确 AI 限制的协议不能直接自动确认。恢复前核对本地任务与平台作品，保留原始 intent，禁止盲目重试。
 
 回执与历史新增 `originalDeclaration`（平台处理结果）和 `creativeStatementVerification`。处理结果：

@@ -64,6 +64,20 @@ export function originalDeclarationDom(action, args) {
     const checked = input ? input.checked : aria === "true" ? true : aria === "false" ? false : null;
     candidates.push({ el, target, label, checked, disabled: Boolean(target.disabled || target.getAttribute("aria-disabled") === "true"), radio: Boolean(input && input.type === "radio") });
   }
+  // 小红书把文字标题和开关放在兄弟节点；只匹配“原创声明”这一行，
+  // 读取其原生 checkbox，不能把 PK 封面等其它 d-switch 当成原创。
+  if (args.platform === "xhs") for (const row of all(".custom-switch-card")) {
+    const title = row.querySelector(".custom-switch-text-content .has-tips");
+    const input = row.querySelector('.custom-switch-switch input[type="checkbox"]');
+    const toggle = row.querySelector(".custom-switch-switch .d-switch");
+    if (!visible(row) || norm(title && title.textContent) !== "原创声明" || !input || !toggle) continue;
+    if (candidates.some(item => item.target === input)) continue;
+    const durations = all("video").map(el => Number(el.duration)).filter(value => Number.isFinite(value) && value > 0);
+    const durationSeconds = Math.max(0, ...durations);
+    candidates.push({ el: toggle, target: input, label: "原创声明", checked: input.checked,
+      disabled: Boolean(input.disabled || toggle.classList.contains("disabled")), radio: false,
+      durationSeconds, restriction: durationSeconds > 0 && durationSeconds < 10 ? "xhs_duration_below_10_seconds" : "" });
+  }
   // B站的授权声明是独立开关，可以和 AI 声明共存；绝不选首发/独家。
   if (args.platform === "blbl") for (const el of all(".statement-content .auth-content")) {
     const label = norm(el.textContent);
@@ -95,7 +109,7 @@ export function originalDeclarationDom(action, args) {
     }
     return { text: String(dialog.innerText || dialog.textContent || "").trim() };
   }
-  return candidates.map(({ label, checked, disabled, radio }) => ({ label, checked, disabled, radio }));
+  return candidates.map(({ label, checked, disabled, radio, durationSeconds, restriction }) => ({ label, checked, disabled, radio, durationSeconds, restriction }));
 }
 
 async function readAi(page, data, platform) {
@@ -108,7 +122,7 @@ async function readAi(page, data, platform) {
 export async function applyOriginalDeclaration(page, data) {
   const platform = PLATFORM_CODES[data.pt];
   if (!platform) return;
-  const review = data.originalDeclarationReview || { eligible: false, reason: "未提供原创资格审查，不声明原创" };
+  const review = { ...(data.originalDeclarationReview || { eligible: false, reason: "未提供原创资格审查，不声明原创" }) };
   const result = { platform, eligible: review.eligible, reason: review.reason, status: "checking", verified: false, checkedAt: new Date().toISOString() };
   data.originalDeclarationResult = result;
   let opened = false;
@@ -132,6 +146,13 @@ export async function applyOriginalDeclaration(page, data) {
       if (controls.length !== 1) throw new Error("原创控件不唯一，已停止提交以避免误选");
       const control = controls[0];
       result.label = control.label;
+      if (control.durationSeconds > 0) result.videoDurationSeconds = control.durationSeconds;
+      if (control.restriction === "xhs_duration_below_10_seconds") {
+        result.requestedEligible = review.eligible;
+        result.eligible = review.eligible = false;
+        result.runtimeRestriction = control.restriction;
+        result.reason = "小红书视频时长小于10秒，不支持原创声明；保留AI声明且不勾选原创";
+      }
       if (typeof control.checked !== "boolean") throw new Error("原创控件选中状态无法识别，已停止提交");
       if (control.disabled && review.eligible) throw new Error("原创控件不可用，不能确认账号资格");
       const clicked = await page.evaluate(originalDeclarationDom, "click", { platform, label: control.label, desired: review.eligible });
@@ -182,6 +203,9 @@ export async function verifyDeclarationsBeforeSubmit(page, data) {
     const result = data.originalDeclarationResult;
     if (!result || result.status === "failed") throw new Error("原创声明核查尚未完成");
     const states = await page.evaluate(originalDeclarationDom, "read", { platform });
+    if (result.selected && states.some(state => state.restriction === "xhs_duration_below_10_seconds")) {
+      throw new Error("提交前确认小红书视频不足10秒，不能声明原创，已停止提交");
+    }
     if (result.status === "not_offered") {
       if (states.length) throw new Error("提交前出现新的原创控件，须重新核查资格和状态");
     } else if (states.length !== 1 || states[0].label !== result.label || states[0].checked !== result.selected) {

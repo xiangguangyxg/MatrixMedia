@@ -25,6 +25,25 @@ async function main(){
   }catch(e){failed++;console.error('FAIL',pt,scenario,e.message)}
  }
  {
+  const dom=new JSDOM('<div id="__xhs_stmt_fixture"><span class="d-select-description">笔记含AI合成内容</span></div><video></video><div class="custom-switch-card"><div class="custom-switch-text-content"><span class="has-tips">原创声明</span></div><div class="custom-switch-switch"><div class="d-switch"><input type="checkbox" checked></div></div></div>');
+  global.document=dom.window.document;global.window=dom.window;dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({width:100,height:30});Object.defineProperty(document.querySelector('video'),'duration',{value:5});
+  const data={pt:'小红书',data:{creativeStatement:'ai_generated'},originalDeclarationResult:{status:'selected',label:'原创声明',selected:true}};
+  await assert.rejects(()=>api.verifyDeclarationsBeforeSubmit({evaluate:async(fn,...args)=>fn(...args)},data),/10秒/);console.log('PASS XHS final duration restriction recheck');
+ }
+ // 小红书实际 DOM：原创是 custom-switch-card 内的原生 checkbox，与 AI 下拉独立。
+ for(const scenario of ['long-eligible','short-disabled','long-ineligible','disabled-unknown']){
+  const disabled=scenario==='short-disabled'||scenario==='disabled-unknown';
+  const dom=new JSDOM(`<div id="__xhs_stmt_fixture"><span class="d-select-description">笔记含AI合成内容</span></div><video></video><div class="custom-switch-card"><div class="custom-switch-text-content"><span class="has-tips">原创声明</span></div><div class="custom-switch-switch"><div class="d-switch ${disabled?'disabled':''}"><span class="d-switch-simulator"><input type="checkbox" ${disabled?'disabled':''} ${scenario==='long-ineligible'?'checked':''}></span></div></div></div>`);
+  global.document=dom.window.document;global.window=dom.window;dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({width:100,height:30});
+  Object.defineProperty(document.querySelector('video'),'duration',{value:scenario==='short-disabled'?5.125:43});
+  const input=document.querySelector('input');document.querySelector('.d-switch').onclick=()=>{if(!disabled)input.checked=!input.checked};
+  const data={pt:'小红书',publishStepPacing:{enabled:false},data:{creativeStatement:'ai_generated'},originalDeclarationReview:{eligible:scenario!=='long-ineligible',reason:'review'}};
+  let error;try{await api.applyOriginalDeclaration({evaluate:async(fn,...args)=>fn(...args),waitForTimeout:async()=>{}},data)}catch(e){error=e}
+  if(scenario==='disabled-unknown')assert(error,'unknown disabled cause must stop');
+  else{assert.ifError(error);assert.equal(data.originalDeclarationResult.status,scenario==='long-eligible'?'selected':'not_claimed');assert.equal(input.checked,scenario==='long-eligible');assert.equal(data.creativeStatementVerification.verified,true);if(scenario==='short-disabled'){assert.equal(data.originalDeclarationResult.eligible,false);assert.equal(data.originalDeclarationResult.runtimeRestriction,'xhs_duration_below_10_seconds')}}
+  console.log('PASS XHS actual originality switch',scenario);
+ }
+ {
   const dom=new JSDOM('<div class="selectText-test">内容由AI生成</div><label><input type="checkbox" checked>声明原创</label><div role="dialog">原创声明：必须同意独家首发协议</div>');
   global.document=dom.window.document;global.window=dom.window;dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({width:100,height:30});
   const data={pt:'抖音',data:{creativeStatement:'ai_generated'},originalDeclarationResult:{status:'selected',label:'声明原创',selected:true}};
